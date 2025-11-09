@@ -6,6 +6,7 @@ sql:
       - "db/migrations/000002_add_bills_of_lading.sql"
       - "db/migrations/000003_add_demurrage_records.sql"
       - "db/migrations/000004_add_vessels.sql"
+      - "db/migrations/000005_add_cargo_loads.sql"
     queries: "db/queries"
     gen:
       go:

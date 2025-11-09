@@ -100,6 +100,13 @@ func bytesOrNil(b []byte) []byte {
 	return out
 }
 
+func nullableBool(b *bool) any {
+	if b == nil {
+		return nil
+	}
+	return *b
+}
+
 func int16Ptr(ni sql.NullInt16) *int16 {
 	if !ni.Valid {
 		return nil
