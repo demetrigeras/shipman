@@ -6,16 +6,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func AddRoutes(group *gin.RouterGroup) {
-	group.POST("/signup", func(c *gin.Context) {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "signup not implemented"})
+func AddRoutes(r *gin.RouterGroup) {
+	r.POST("/signup", func(c *gin.Context) {
+		c.Status(http.StatusNotImplemented)
 	})
 
-	group.POST("/signin", func(c *gin.Context) {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "signin not implemented"})
+	r.POST("/signin", func(c *gin.Context) {
+		c.Status(http.StatusNotImplemented)
 	})
 
-	group.GET("/me", func(c *gin.Context) {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "current user lookup not implemented"})
+	r.GET("/me", func(c *gin.Context) {
+		c.Status(http.StatusNotImplemented)
 	})
 }
