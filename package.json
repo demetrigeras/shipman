@@ -1,0 +1,15 @@
+{
+  "name": "shipman",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "migrate": "go run cmd/migrate/main.go up",
+    "migrate:down": "go run cmd/migrate/main.go down",
+    "migrate:reset": "go run cmd/migrate/main.go reset",
+    "migrate:status": "go run cmd/migrate/main.go status",
+    "migrate:version": "go run cmd/migrate/main.go version",
+    "start:app": "go run cmd/main.go",
+    "start:fe": "yarn --cwd Shipman-FE dev",
+    "start": "concurrently \"yarn start:app\" \"yarn start:fe\""
+  }
+}

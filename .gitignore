@@ -1,0 +1,42 @@
+# Config with secrets
+config/config.local.yaml
+config/config.yaml
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Uploaded files
+uploads/
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/tmp/
+
+# Go test cache
+*.test
+*.out
+
+# Go vendor
+vendor/
+
+# Node modules
+Shipman-FE/node_modules/
+
+# Frontend build
+Shipman-FE/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

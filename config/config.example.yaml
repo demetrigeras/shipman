@@ -1,0 +1,28 @@
+# Example configuration - safe to commit
+# Copy to config.local.yaml and fill in your values
+
+server:
+  http_addr: "0.0.0.0:8080"
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "your_db_user"
+  password: "your_db_password"
+  name: "shipman"
+  sslmode: "disable"
+
+auth:
+  jwt_secret: "replace-with-a-strong-random-secret"
+  token_duration_hours: 24
+
+storage:
+  path: "./uploads"
+
+ai:
+  openai_api_key: "sk-..."
+  model: "gpt-4o-mini"
+
+coinsub:
+  api_key: "your-coinsub-api-key"
+  webhook_secret: "your-coinsub-webhook-secret"

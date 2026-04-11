@@ -2,47 +2,92 @@ package router
 
 import (
 	"net/http"
+	"strings"
+	"time"
 
+	"shipman/internal/auth"
+	"shipman/internal/email"
+	"shipman/internal/router/groups/deals"
+	"shipman/internal/router/groups/documents"
+	"shipman/internal/router/groups/marketplace"
 	"shipman/internal/router/groups/users"
+	"shipman/internal/storage"
 
 	"github.com/gin-gonic/gin"
 )
 
-func Setup() *gin.Engine {
-	r := gin.New()
-	r.Use(gin.Logger())
-	r.Use(gin.Recovery())
-
-	addDefaultRoutes(r)
-	registerAPIRoutes(r)
-
-	return r
+type Router struct {
+	engine       *gin.Engine
+	jwtManager   *auth.JWTManager
+	storage      storage.Storage
+	openAIAPIKey string
+	aiModel      string
+	aiBaseURL    string
+	emailSvc     *email.Service
+	appURL       string
 }
 
-func addDefaultRoutes(r *gin.Engine) {
-	r.GET("/healthz", func(c *gin.Context) {
+func Setup(jwtSecret string, store storage.Storage, openAIKey, aiModel, aiBaseURL string, emailCfg email.Config, appURL string) *gin.Engine {
+	r := &Router{
+		engine:       gin.New(),
+		jwtManager:   auth.NewJWTManager(jwtSecret, 24*time.Hour),
+		storage:      store,
+		openAIAPIKey: openAIKey,
+		aiModel:      aiModel,
+		aiBaseURL:    aiBaseURL,
+		emailSvc:     email.NewService(emailCfg),
+		appURL:       appURL,
+	}
+
+	r.engine.Use(gin.Logger())
+	r.engine.Use(gin.Recovery())
+
+	r.addDefaultRoutes()
+	r.registerAPIRoutes()
+
+	return r.engine
+}
+
+func (r *Router) addDefaultRoutes() {
+	r.engine.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	r.GET("/ping", func(c *gin.Context) {
+	r.engine.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 }
 
-func registerAPIRoutes(r *gin.Engine) {
-	routes(r)
-}
-
-func routes(r *gin.Engine) {
-	api := r.Group("/api")
+func (r *Router) registerAPIRoutes() {
+	api := r.engine.Group("/api")
 	api.Use(corsMiddleware())
 
 	v1 := api.Group("/v1")
 	v1.Use(requestContextMiddleware(), rateLimitMiddleware())
 
-	usersGroup := v1.Group("/users")
-	usersGroup.Use(authMiddleware())
-	users.AddRoutes(usersGroup)
+	userHandler := users.NewHandler(r.jwtManager)
+
+	publicUsers := v1.Group("/users")
+	userHandler.AddPublicRoutes(publicUsers)
+
+	protectedUsers := v1.Group("/users")
+	protectedUsers.Use(r.authMiddleware())
+	userHandler.AddProtectedRoutes(protectedUsers)
+
+	docHandler := documents.NewHandler(r.storage, r.openAIAPIKey, r.aiModel, r.aiBaseURL)
+	docsGroup := v1.Group("/documents")
+	docsGroup.Use(r.authMiddleware())
+	docHandler.AddRoutes(docsGroup)
+
+	dealHandler := deals.NewHandler(r.emailSvc, r.appURL)
+	dealsGroup := v1.Group("/deals")
+	dealsGroup.Use(r.authMiddleware())
+	dealHandler.AddRoutes(dealsGroup)
+
+	marketplaceHandler := marketplace.NewHandler()
+	marketplaceGroup := v1.Group("/marketplace")
+	marketplaceGroup.Use(r.authMiddleware())
+	marketplaceHandler.AddRoutes(marketplaceGroup)
 }
 
 func corsMiddleware() gin.HandlerFunc {
@@ -61,12 +106,34 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
-func authMiddleware() gin.HandlerFunc {
+func (r *Router) authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.GetHeader("Authorization") == "" {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing Authorization header"})
 			return
 		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid Authorization header format"})
+			return
+		}
+
+		claims, err := r.jwtManager.Verify(parts[1])
+		if err != nil {
+			if err == auth.ErrExpiredToken {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token has expired"})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			return
+		}
+
+		c.Set("userID", claims.UserID)
+		c.Set("userEmail", claims.Email)
+		c.Set("userRole", claims.Role)
+		c.Set("userFullName", claims.FullName)
 
 		c.Next()
 	}
