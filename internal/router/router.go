@@ -57,6 +57,15 @@ func Setup(jwtSecret string, store storage.Storage, aiProvider, aiAPIKey, aiMode
 }
 
 func (r *Router) addDefaultRoutes() {
+	r.engine.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"service": "shipman-api",
+			"status":  "ok",
+			"docs":    "This is the Shipman backend API. Visit the frontend at " + r.appURL,
+			"health":  "/healthz",
+		})
+	})
+
 	r.engine.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})

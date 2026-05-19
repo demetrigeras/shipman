@@ -12,8 +12,8 @@
     "start:fe": "yarn --cwd Shipman-FE dev",
     "start": "concurrently \"yarn start:app\" \"yarn start:fe\"",
     "build:fe": "yarn --cwd Shipman-FE build",
-    "deploy": "yarn build:fe && wrangler deploy",
-    "preview": "yarn build:fe && wrangler dev"
+    "deploy": "yarn build:fe && npx --yes wrangler@4 deploy",
+    "preview": "yarn build:fe && npx --yes wrangler@4 dev"
   },
   "devDependencies": {
     "wrangler": "^4.93.0"
