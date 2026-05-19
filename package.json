@@ -10,6 +10,11 @@
     "migrate:version": "go run cmd/migrate/main.go version",
     "start:app": "go run cmd/main.go",
     "start:fe": "yarn --cwd Shipman-FE dev",
-    "start": "concurrently \"yarn start:app\" \"yarn start:fe\""
+    "start": "concurrently \"yarn start:app\" \"yarn start:fe\"",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^4.93.0"
   }
 }
