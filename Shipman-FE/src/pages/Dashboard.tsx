@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 
 export default function Dashboard() {
-  const { user, signout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const roleLabels: Record<string, string> = {

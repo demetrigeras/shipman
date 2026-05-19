@@ -11,8 +11,9 @@
     "start:app": "go run cmd/main.go",
     "start:fe": "yarn --cwd Shipman-FE dev",
     "start": "concurrently \"yarn start:app\" \"yarn start:fe\"",
-    "deploy": "wrangler deploy",
-    "preview": "wrangler dev"
+    "build:fe": "yarn --cwd Shipman-FE build",
+    "deploy": "yarn build:fe && wrangler deploy",
+    "preview": "yarn build:fe && wrangler dev"
   },
   "devDependencies": {
     "wrangler": "^4.93.0"

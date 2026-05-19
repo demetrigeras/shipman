@@ -1,4 +1,5 @@
-const API_BASE = '/api/v1';
+const RAW_API_BASE = (import.meta.env?.VITE_API_BASE_URL ?? '/api/v1') as string;
+const API_BASE = RAW_API_BASE.replace(/\/+$/, '');
 
 export interface ExtractedTerms {
   vessel_name?: string;

@@ -110,8 +110,12 @@ func Load() (*Config, error) {
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
+		yamlPort := ""
+		if yc.Database.Port > 0 {
+			yamlPort = fmt.Sprintf("%d", yc.Database.Port)
+		}
 		host := envOr("PGHOST", yc.Database.Host, "localhost")
-		port := envOr("PGPORT", fmt.Sprintf("%d", yc.Database.Port), "5432")
+		port := envOr("PGPORT", yamlPort, "5432")
 		user := envOr("PGUSER", yc.Database.User, "demetrigeras")
 		password := envOr("PGPASSWORD", yc.Database.Password, "")
 		name := envOr("PGDATABASE", yc.Database.Name, "shipman")

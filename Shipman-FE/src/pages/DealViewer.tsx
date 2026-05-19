@@ -869,7 +869,6 @@ export default function DealViewer() {
             <div className="clause-list">
               {negotiations.map(neg => {
                 const isActive = activeNeg?.id === neg.id;
-                const latestProposal = isActive && proposals.length > 0 ? proposals[proposals.length - 1] : null;
                 const pendingCount = isActive ? proposals.filter(p => p.status === 'pending').length : 0;
 
                 return (

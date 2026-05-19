@@ -117,7 +117,6 @@ export default function DocumentViewer() {
       setScanState('analyzing');
       const result = await api.documents.analyze(id);
       setAnalysis(result.analysis);
-      if (result.document) setDocument(result.document);
       setScanState('done');
     } catch (e) {
       setScanState('idle');
