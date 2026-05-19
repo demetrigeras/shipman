@@ -1,16 +1,23 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [searchParams] = useSearchParams();
+  const prefillEmail = searchParams.get('email') ?? '';
+  const redirect = searchParams.get('redirect') ?? '/dashboard';
+
+  const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { signin, error, clearError } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const redirect = searchParams.get('redirect') ?? '/dashboard';
+  const passwordRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (prefillEmail) passwordRef.current?.focus();
+  }, [prefillEmail]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -39,6 +46,12 @@ export default function Login() {
           </div>
         )}
 
+        {prefillEmail && (
+          <div className="invite-email-hint">
+            Signing in as <strong>{prefillEmail}</strong> to join a negotiation
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
             <label htmlFor="email">Email</label>
@@ -56,6 +69,7 @@ export default function Login() {
           <div className="form-group">
             <label htmlFor="password">Password</label>
             <input
+              ref={passwordRef}
               id="password"
               type="password"
               value={password}
@@ -73,7 +87,7 @@ export default function Login() {
 
         <div className="auth-footer">
           <p>
-            Don't have an account? <Link to={`/register?redirect=${encodeURIComponent(redirect)}`}>Create one</Link>
+            Don't have an account? <Link to={`/register?redirect=${encodeURIComponent(redirect)}${prefillEmail ? `&email=${encodeURIComponent(prefillEmail)}` : ''}`}>Create one</Link>
           </p>
         </div>
       </div>

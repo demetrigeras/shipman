@@ -16,19 +16,19 @@ type Config struct {
 	AIProvider    string
 	AIModel       string
 	AIBaseURL     string
-	CoinsubKey    string
-	CoinsubSecret string
+	CoinsubKey        string
+	CoinsubMerchantID string
+	CoinsubSecret     string
 	AppURL        string
 	Email         EmailConfig
+	MarineAPIKey  string
 }
 
 type EmailConfig struct {
-	SMTPHost     string
-	SMTPPort     string
-	SMTPUser     string
-	SMTPPassword string
-	FromAddress  string
-	FromName     string
+	SendGridAPIKey string
+	TemplateID     string
+	FromAddress    string
+	FromName       string
 }
 
 type yamlConfig struct {
@@ -62,19 +62,19 @@ type yamlConfig struct {
 
 	Coinsub struct {
 		APIKey        string `yaml:"api_key"`
+		MerchantID    string `yaml:"merchant_id"`
 		WebhookSecret string `yaml:"webhook_secret"`
 	} `yaml:"coinsub"`
 
 	Email struct {
-		SMTPHost     string `yaml:"smtp_host"`
-		SMTPPort     string `yaml:"smtp_port"`
-		SMTPUser     string `yaml:"smtp_user"`
-		SMTPPassword string `yaml:"smtp_password"`
-		FromAddress  string `yaml:"from_address"`
-		FromName     string `yaml:"from_name"`
+		SendGridAPIKey string `yaml:"sendgrid_api_key"`
+		TemplateID     string `yaml:"template_id"`
+		FromAddress    string `yaml:"from_address"`
+		FromName       string `yaml:"from_name"`
 	} `yaml:"email"`
 
-	AppURL string `yaml:"app_url"`
+	AppURL       string `yaml:"app_url"`
+	MarineAPIKey string `yaml:"marine_traffic_api_key"`
 }
 
 func Load() (*Config, error) {
@@ -105,6 +105,7 @@ func Load() (*Config, error) {
 		}
 	}
 	coinsubKey := envOr("COINSUB_API_KEY", yc.Coinsub.APIKey, "")
+	coinsubMerchantID := envOr("COINSUB_MERCHANT_ID", yc.Coinsub.MerchantID, "")
 	coinsubSecret := envOr("COINSUB_WEBHOOK_SECRET", yc.Coinsub.WebhookSecret, "")
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -124,6 +125,7 @@ func Load() (*Config, error) {
 	}
 
 	appURL := envOr("APP_URL", yc.AppURL, "http://localhost:3000")
+	marineAPIKey := envOr("MARINE_TRAFFIC_API_KEY", yc.MarineAPIKey, "")
 
 	return &Config{
 		HTTPAddress:   httpAddr,
@@ -134,16 +136,16 @@ func Load() (*Config, error) {
 		AIProvider:    aiProvider,
 		AIModel:       aiModel,
 		AIBaseURL:     aiBaseURL,
-		CoinsubKey:    coinsubKey,
-		CoinsubSecret: coinsubSecret,
+		CoinsubKey:        coinsubKey,
+		CoinsubMerchantID: coinsubMerchantID,
+		CoinsubSecret:     coinsubSecret,
 		AppURL:        appURL,
+		MarineAPIKey:  marineAPIKey,
 		Email: EmailConfig{
-			SMTPHost:     envOr("SMTP_HOST", yc.Email.SMTPHost, ""),
-			SMTPPort:     envOr("SMTP_PORT", yc.Email.SMTPPort, "587"),
-			SMTPUser:     envOr("SMTP_USER", yc.Email.SMTPUser, ""),
-			SMTPPassword: envOr("SMTP_PASSWORD", yc.Email.SMTPPassword, ""),
-			FromAddress:  envOr("EMAIL_FROM", yc.Email.FromAddress, "no-reply@shipman.app"),
-			FromName:     envOr("EMAIL_FROM_NAME", yc.Email.FromName, "Shipman"),
+			SendGridAPIKey: envOr("SENDGRID_API_KEY", yc.Email.SendGridAPIKey, ""),
+			TemplateID:     envOr("SENDGRID_TEMPLATE_ID", yc.Email.TemplateID, ""),
+			FromAddress:    envOr("EMAIL_FROM", yc.Email.FromAddress, "no-reply@shipman.app"),
+			FromName:       envOr("EMAIL_FROM_NAME", yc.Email.FromName, "Shipman"),
 		},
 	}, nil
 }

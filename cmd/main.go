@@ -36,15 +36,13 @@ func main() {
 	log.Printf("Storage initialized at %s", cfg.StoragePath)
 
 	emailCfg := email.Config{
-		SMTPHost:     cfg.Email.SMTPHost,
-		SMTPPort:     cfg.Email.SMTPPort,
-		SMTPUser:     cfg.Email.SMTPUser,
-		SMTPPassword: cfg.Email.SMTPPassword,
-		FromAddress:  cfg.Email.FromAddress,
-		FromName:     cfg.Email.FromName,
+		SendGridAPIKey: cfg.Email.SendGridAPIKey,
+		TemplateID:     cfg.Email.TemplateID,
+		FromAddress:    cfg.Email.FromAddress,
+		FromName:       cfg.Email.FromName,
 	}
 
-	r := router.Setup(cfg.JWTSecret, store, cfg.OpenAIAPIKey, cfg.AIModel, cfg.AIBaseURL, emailCfg, cfg.AppURL)
+	r := router.Setup(cfg.JWTSecret, store, cfg.AIProvider, cfg.OpenAIAPIKey, cfg.AIModel, cfg.AIBaseURL, emailCfg, cfg.AppURL, cfg.MarineAPIKey, cfg.CoinsubKey, cfg.CoinsubMerchantID, cfg.CoinsubSecret)
 
 	log.Printf("Starting server on %s", cfg.HTTPAddress)
 	if err := r.Run(cfg.HTTPAddress); err != nil {

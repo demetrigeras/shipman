@@ -3,10 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type {
   Deal, DealParticipant, ClauseNegotiation, DealVesselDetails, DealCargoDetails,
-  ClauseProposal,
+  ClauseProposal, AIAnalysis,
 } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import SkypeIntegration from '../components/SkypeIntegration';
 import NavBar from '../components/NavBar';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -24,6 +23,56 @@ function timeAgo(dateStr: string): string {
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(dateStr).toLocaleDateString();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// CoinSub / RocketRamp button. Opens the wallet in a new browser tab.
+//
+// We deliberately do NOT use an iframe: RocketRamp's /embed/{code} endpoint
+// enforces a domain allowlist via Sec-Fetch-Dest=iframe + Referer, which
+// can't be configured to permit http://localhost:* on the Vantack dashboard.
+// Top-level navigation (Sec-Fetch-Dest=document) bypasses that check by
+// design, since it's no longer an embed.
+//
+// Sandbox creds (test.vantack.com) → test.myrocketramp.com.
+// Production creds (app.vantack.com) → app.myrocketramp.com.
+// ────────────────────────────────────────────────────────────────────────────
+
+const ROCKETRAMP_TEST_BASE = 'https://test.myrocketramp.com/embed';
+const ROCKETRAMP_PROD_BASE = 'https://app.myrocketramp.com/embed';
+
+interface CoinSubButtonProps {
+  embedKey?: string;
+  label?: string;
+  testMode?: boolean;
+}
+
+function CoinSubButton({ embedKey, label = 'Get Credits', testMode = true }: CoinSubButtonProps) {
+  const base = testMode ? ROCKETRAMP_TEST_BASE : ROCKETRAMP_PROD_BASE;
+
+  const handleClick = () => {
+    if (!embedKey) {
+      alert(
+        'No embed code configured. Mint one by POSTing to ' +
+          (testMode ? 'test-api.vantack.com' : 'api.vantack.com') +
+          '/v1/merchants/embed/prefill, then pass it as the embedKey prop.',
+      );
+      return;
+    }
+    const url = `${base}/${embedKey}?t=${Date.now()}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <button
+      type="button"
+      className="btn-coinsub"
+      onClick={handleClick}
+      title={embedKey ? 'Open RocketRamp wallet in a new tab' : 'No embed code configured'}
+    >
+      {label}
+    </button>
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -264,15 +313,24 @@ export default function DealViewer() {
   const [inviteRole, setInviteRole] = useState<'shipowner' | 'charterer' | 'broker'>('charterer');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteResult, setInviteResult] = useState<{ link: string; email_sent: boolean } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [activeNeg, setActiveNeg] = useState<ClauseNegotiation | null>(null);
   const [proposalText, setProposalText] = useState('');
+  const [commentText, setCommentText] = useState('');
   const [proposals, setProposals] = useState<ClauseProposal[]>([]);
   const [loadingProposals, setLoadingProposals] = useState(false);
+  const [dealCompleted, setDealCompleted] = useState(false);
+  const conversationEndRef = useRef<HTMLDivElement>(null);
 
   // Charter party upload state
   const [cpUploadState, setCpUploadState] = useState<'idle' | 'uploading' | 'extracting' | 'done'>('idle');
+  const [cpDocId, setCpDocId] = useState<string | null>(null);
   const [cpDocText, setCpDocText] = useState<string | null>(null);
   const cpInputRef = useRef<HTMLInputElement>(null);
+
+  // AI scanning state
+  const [aiScanState, setAiScanState] = useState<'idle' | 'scanning' | 'done'>('idle');
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
 
   const loadDeal = useCallback(async (dealId: string) => {
     try {
@@ -338,11 +396,43 @@ export default function DealViewer() {
       const processed = await api.documents.process(doc.id);
       await api.deals.attachDocument(id, doc.id);
 
+      setCpDocId(doc.id);
       setCpDocText(processed.extracted_text ?? null);
       setCpUploadState('done');
     } catch (e) {
       setCpUploadState('idle');
       setError(e instanceof ApiError ? e.message : 'Failed to process charter party');
+    }
+  };
+
+  // AI scan the charter party for negotiation clauses
+  const handleAIScan = async () => {
+    if (!id || !cpDocId) return;
+    setError(null);
+    setAiScanState('scanning');
+    try {
+      const result = await api.documents.analyze(cpDocId);
+      setAiAnalysis(result.analysis);
+      setAiScanState('done');
+
+      // Auto-create negotiations from high/medium importance clauses
+      if (result.analysis?.clauses) {
+        const importantClauses = result.analysis.clauses.filter(c => c.importance === 'high' || c.importance === 'medium');
+        for (let i = 0; i < importantClauses.length; i++) {
+          const clause = importantClauses[i];
+          await api.deals.createNegotiation(id, {
+            clause_type: clause.type,
+            clause_title: clause.title,
+            original_content: clause.content,
+            sort_order: i,
+          }).catch(() => {});
+        }
+        const negsResponse = await api.deals.listNegotiations(id);
+        setNegotiations(negsResponse.data || []);
+      }
+    } catch (e) {
+      setAiScanState('idle');
+      setError(e instanceof ApiError ? e.message : 'AI scan failed');
     }
   };
 
@@ -364,44 +454,62 @@ export default function DealViewer() {
   // Handle clicking on a negotiation card
   const handleSelectNeg = (neg: ClauseNegotiation) => {
     if (activeNeg?.id === neg.id) {
-      // Collapse
       setActiveNeg(null);
       setProposals([]);
       setProposalText('');
+      setCommentText('');
     } else {
-      // Expand and load proposals
       setActiveNeg(neg);
       setProposalText('');
+      setCommentText('');
       loadProposals(neg.id);
     }
   };
 
   const handleCreateProposal = async () => {
     if (!id || !activeNeg || !proposalText.trim()) return;
+    const negId = activeNeg.id;
     try {
-      await api.deals.createProposal(id, activeNeg.id, { proposed_content: proposalText });
+      const body: { proposed_content: string; comment?: string } = {
+        proposed_content: proposalText.trim(),
+      };
+      if (commentText.trim()) body.comment = commentText.trim();
+
+      await api.deals.createProposal(id, negId, body);
       setProposalText('');
-      // Reload proposals and negotiations
-      await loadProposals(activeNeg.id);
+      setCommentText('');
+
+      const updatedNeg = await api.deals.getNegotiation(id, negId);
+      setProposals(updatedNeg.proposals || []);
+
       const negsResponse = await api.deals.listNegotiations(id);
       setNegotiations(negsResponse.data || []);
-      const updatedNeg = negsResponse.data?.find(n => n.id === activeNeg.id);
-      if (updatedNeg) setActiveNeg(updatedNeg);
+      const refreshed = negsResponse.data?.find(n => n.id === negId);
+      if (refreshed) setActiveNeg(refreshed);
+
+      setTimeout(() => conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to submit proposal');
     }
   };
 
+  const reloadAfterAction = async (negId: string) => {
+    const updatedNeg = await api.deals.getNegotiation(id!, negId);
+    setProposals(updatedNeg.proposals || []);
+    const negsResponse = await api.deals.listNegotiations(id!);
+    setNegotiations(negsResponse.data || []);
+    const refreshed = negsResponse.data?.find(n => n.id === negId);
+    if (refreshed) setActiveNeg(refreshed);
+  };
+
   const handleAcceptProposal = async (proposalId: string) => {
     if (!id || !activeNeg) return;
     try {
-      await api.deals.updateProposalStatus(id, activeNeg.id, proposalId, 'accepted');
-      // Reload
-      await loadProposals(activeNeg.id);
-      const negsResponse = await api.deals.listNegotiations(id);
-      setNegotiations(negsResponse.data || []);
-      const updatedNeg = negsResponse.data?.find(n => n.id === activeNeg.id);
-      if (updatedNeg) setActiveNeg(updatedNeg);
+      const result = await api.deals.updateProposalStatus(id, activeNeg.id, proposalId, 'accepted');
+      await reloadAfterAction(activeNeg.id);
+      if (result.deal_completed) {
+        setDealCompleted(true);
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to accept proposal');
     }
@@ -411,22 +519,26 @@ export default function DealViewer() {
     if (!id || !activeNeg) return;
     try {
       await api.deals.updateProposalStatus(id, activeNeg.id, proposalId, 'rejected');
-      // Reload
-      await loadProposals(activeNeg.id);
-      const negsResponse = await api.deals.listNegotiations(id);
-      setNegotiations(negsResponse.data || []);
-      const updatedNeg = negsResponse.data?.find(n => n.id === activeNeg.id);
-      if (updatedNeg) setActiveNeg(updatedNeg);
+      await reloadAfterAction(activeNeg.id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to reject proposal');
     }
   };
 
   const statusColor: Record<string, string> = {
-    pending: 'badge-warning',
+    pending: 'badge-open',
+    open: 'badge-open',
     accepted: 'badge-success',
     rejected: 'badge-error',
     countered: 'badge-info',
+  };
+
+  const statusLabel: Record<string, string> = {
+    pending: 'Open',
+    open: 'Open',
+    accepted: 'Agreed',
+    rejected: 'Rejected',
+    countered: 'Counter proposed',
   };
 
   if (isLoading) {
@@ -459,9 +571,9 @@ export default function DealViewer() {
           <span className={`badge badge-${deal.status}`}>{deal.status}</span>
         </div>
         <div className="deal-room-actions">
-          <SkypeIntegration
-            participantEmails={participants.filter(p => p.user?.email).map(p => p.user!.email)}
-          />
+          {/* TEMP smoke-test embed code from test.vantack.com. Single-use;
+              re-mint with the prefill API and replace if it stops loading. */}
+          <CoinSubButton embedKey="3363ccdf-20da-4236-bb64-0a20e983f894" testMode />
           <button className="btn-primary btn-sm" onClick={() => setShowInvite(true)}>
             + Invite Party
           </button>
@@ -469,6 +581,29 @@ export default function DealViewer() {
       </header>
 
       {error && <div className="error-banner" onClick={() => setError(null)}>{error}</div>}
+
+      {(dealCompleted || deal?.status === 'completed') && (
+        <div className="deal-completed-banner">
+          <span>🎉 All clauses agreed — this deal is complete.</span>
+          <button
+            className="btn-start-ops"
+            onClick={async () => {
+              const v = await api.voyages.create({
+                deal_id: deal?.id,
+                vessel_name: vesselDetails?.vessel_name ?? undefined,
+                imo_number: vesselDetails?.imo_number ?? undefined,
+                dwt: vesselDetails?.deadweight_tonnage ?? undefined,
+                cargo_type: cargoDetails?.commodity ?? undefined,
+                cargo_quantity: cargoDetails?.quantity ?? undefined,
+                status: 'planned',
+              });
+              navigate(`/voyages/${v.id}`);
+            }}
+          >
+            🚢 Start Operations →
+          </button>
+        </div>
+      )}
 
       {/* INVITE MODAL */}
       {showInvite && (
@@ -509,19 +644,27 @@ export default function DealViewer() {
                 {inviteResult.email_sent ? (
                   <>
                     <h3>Invite Sent!</h3>
-                    <p>{inviteEmail} will receive an email with a link to join this negotiation.</p>
+                    <p>An email has been sent to <strong>{inviteEmail}</strong> with a link to join this negotiation.</p>
                   </>
                 ) : (
                   <>
                     <h3>Invite Created</h3>
-                    <p>Email is not configured — forward this link to {inviteEmail}:</p>
+                    <p>Copy this link and send it to <strong>{inviteEmail}</strong>:</p>
                     <div className="invite-link-box">
-                      <span>{inviteResult.link}</span>
-                      <button className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(inviteResult.link)}>Copy</button>
+                      <input type="text" readOnly value={inviteResult.link} onClick={e => (e.target as HTMLInputElement).select()} />
+                      <button
+                        className="btn-primary btn-sm"
+                        onClick={() => { navigator.clipboard.writeText(inviteResult.link); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }}
+                      >
+                        {linkCopied ? 'Copied!' : 'Copy'}
+                      </button>
                     </div>
+                    <p style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.75rem' }}>
+                      To send invites by email automatically, configure SMTP in config.local.yaml.
+                    </p>
                   </>
                 )}
-                <button className="btn-primary" style={{ marginTop: '1.5rem' }} onClick={() => { setShowInvite(false); setInviteResult(null); setInviteEmail(''); }}>
+                <button className="btn-primary" style={{ marginTop: '1.5rem' }} onClick={() => { setShowInvite(false); setInviteResult(null); setInviteEmail(''); setLinkCopied(false); }}>
                   Done
                 </button>
               </div>
@@ -657,132 +800,209 @@ export default function DealViewer() {
             </div>
           )}
 
-          {/* Document text view (tab-like split) */}
+          {/* Document viewer frame with AI scan */}
           {cpUploadState === 'done' && cpDocText && (
-            <div className="cp-doc-text">
-              {(() => {
-                // Same reflow logic as DocumentViewer
-                const lines = cpDocText.split('\n').map(l => l.trim()).filter(Boolean);
-                const chunks: string[] = [];
-                let buf = '';
-                for (const line of lines) {
-                  const startsClause = /^\d{1,3}[\.\)](\s|$)/.test(line);
-                  if (startsClause && buf) { chunks.push(buf.trim()); buf = line; }
-                  else { buf = buf ? buf + ' ' + line : line; }
-                }
-                if (buf) chunks.push(buf.trim());
+            <div className="cp-doc-viewer">
+              {/* Toolbar */}
+              <div className="cp-doc-toolbar">
+                <span className="cp-doc-label">📄 Charter Party Document</span>
+                <div className="cp-doc-actions">
+                  {aiScanState === 'idle' && negotiations.length === 0 && (
+                    <button className="btn-scan" onClick={handleAIScan}>
+                      🔍 Scan for Negotiation Points
+                    </button>
+                  )}
+                  {aiScanState === 'scanning' && (
+                    <span className="scan-status">
+                      <span className="loading-spinner-sm" /> AI scanning clauses…
+                    </span>
+                  )}
+                  {(aiScanState === 'done' || negotiations.length > 0) && (
+                    <button className="btn-secondary btn-sm" onClick={handleAIScan} disabled={aiScanState === 'scanning'}>
+                      ↺ Re-scan
+                    </button>
+                  )}
+                </div>
+              </div>
 
-                return chunks.map((chunk, i) => {
-                  const isAllCaps = chunk.length > 0 && chunk === chunk.toUpperCase() && /[A-Z]/.test(chunk) && chunk.length < 160;
-                  return isAllCaps
-                    ? <h4 key={i} className="cp-doc-heading">{chunk}</h4>
-                    : <p key={i} className="cp-doc-para">{chunk}</p>;
-                });
-              })()}
+              {/* Document text in a paper-like frame */}
+              <div className="cp-doc-paper">
+                {(() => {
+                  const lines = cpDocText.split('\n').map(l => l.trim()).filter(Boolean);
+                  const chunks: string[] = [];
+                  let buf = '';
+                  for (const line of lines) {
+                    const startsClause = /^\d{1,3}[\.\)](\s|$)/.test(line);
+                    if (startsClause && buf) { chunks.push(buf.trim()); buf = line; }
+                    else { buf = buf ? buf + ' ' + line : line; }
+                  }
+                  if (buf) chunks.push(buf.trim());
+
+                  return chunks.map((chunk, i) => {
+                    const isAllCaps = chunk.length > 0 && chunk === chunk.toUpperCase() && /[A-Z]/.test(chunk) && chunk.length < 160;
+                    return isAllCaps
+                      ? <h4 key={i} className="cp-doc-heading">{chunk}</h4>
+                      : <p key={i} className="cp-doc-para">{chunk}</p>;
+                  });
+                })()}
+              </div>
+
+              {/* AI Analysis summary (if available) */}
+              {aiAnalysis && (
+                <div className="cp-ai-summary">
+                  <strong>AI Summary:</strong> {aiAnalysis.summary}
+                  {aiAnalysis.risk_factors && aiAnalysis.risk_factors.length > 0 && (
+                    <div className="cp-ai-risks">
+                      <strong>Risk Factors:</strong>
+                      <ul>
+                        {aiAnalysis.risk_factors.slice(0, 3).map((r, i) => <li key={i}>{r}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {/* Clause list */}
           {negotiations.length > 0 && (
             <div className="clause-list">
-              {negotiations.map(neg => (
-                <div
-                  key={neg.id}
-                  className={`clause-card ${activeNeg?.id === neg.id ? 'clause-card--active' : ''}`}
-                  onClick={() => handleSelectNeg(neg)}
-                >
-                  <div className="clause-card-header">
-                    <span className="clause-type-tag">{neg.clause_type.replace('_', ' ')}</span>
-                    <span className={`badge ${statusColor[neg.status] ?? 'badge-info'}`}>{neg.status}</span>
-                  </div>
-                  <h4>{neg.clause_title}</h4>
-                  {activeNeg?.id !== neg.id && (
-                    <p className="clause-excerpt">{neg.original_content.slice(0, 180)}{neg.original_content.length > 180 ? '…' : ''}</p>
-                  )}
+              {negotiations.map(neg => {
+                const isActive = activeNeg?.id === neg.id;
+                const latestProposal = isActive && proposals.length > 0 ? proposals[proposals.length - 1] : null;
+                const pendingCount = isActive ? proposals.filter(p => p.status === 'pending').length : 0;
 
-                  {/* Expanded view with proposal thread */}
-                  {activeNeg?.id === neg.id && (
-                    <div className="clause-expanded" onClick={e => e.stopPropagation()}>
-                      {/* Original clause */}
-                      <div className="clause-original">
-                        <span className="clause-original-label">Original Clause</span>
-                        <p>{neg.original_content}</p>
-                      </div>
+                return (
+                  <div
+                    key={neg.id}
+                    className={`clause-card ${isActive ? 'clause-card--active' : ''}`}
+                    onClick={() => handleSelectNeg(neg)}
+                  >
+                    {/* Collapsed view */}
+                    <div className="clause-card-header">
+                      <span className="clause-type-tag">{neg.clause_type.replace('_', ' ')}</span>
+                      <span className={`badge ${statusColor[neg.status] ?? 'badge-info'}`}>
+                        {statusLabel[neg.status] ?? neg.status}
+                      </span>
+                    </div>
+                    <h4>{neg.clause_title}</h4>
+                    {!isActive && (
+                      <p className="clause-excerpt">{neg.original_content.slice(0, 140)}{neg.original_content.length > 140 ? '…' : ''}</p>
+                    )}
 
-                      {/* Proposal thread */}
-                      <div className="proposal-thread">
-                        {loadingProposals ? (
-                          <div className="proposal-loading">
-                            <span className="loading-spinner-sm" /> Loading proposals…
+                    {/* Expanded view */}
+                    {isActive && (
+                      <div className="clause-expanded" onClick={e => e.stopPropagation()}>
+
+                        {/* Original clause */}
+                        <div className="clause-original">
+                          <span className="clause-original-label">Original Clause</span>
+                          <p>{neg.original_content}</p>
+                        </div>
+
+                        {/* ── Negotiation conversation ── */}
+                        <div className="neg-conversation">
+                          {loadingProposals ? (
+                            <div className="proposal-loading">
+                              <span className="loading-spinner-sm" /> Loading…
+                            </div>
+                          ) : proposals.length === 0 ? (
+                            <div className="neg-empty">
+                              No edits proposed yet. Use the form below to suggest changes.
+                            </div>
+                          ) : (
+                            <>
+                              {/* Counter badge */}
+                              {pendingCount > 0 && (
+                                <div className="neg-counter-banner">
+                                  {pendingCount} pending edit{pendingCount > 1 ? 's' : ''} awaiting response
+                                </div>
+                              )}
+
+                              {/* Proposal messages */}
+                              {proposals.map((p, idx) => {
+                                const isMe = p.proposed_by === user?.id;
+                                const roleName = p.proposed_by_user?.role ?? 'unknown';
+                                const isLatest = idx === proposals.length - 1;
+                                const resolved = p.status !== 'pending';
+
+                                return (
+                                  <div
+                                    key={p.id}
+                                    className={`neg-msg ${isMe ? 'neg-msg--mine' : 'neg-msg--theirs'} ${resolved ? 'neg-msg--resolved' : ''} ${isLatest ? 'neg-msg--latest' : ''}`}
+                                  >
+                                    <div className="neg-msg-meta">
+                                      <span className={`neg-msg-author role-tag-${roleName}`}>
+                                        {p.proposed_by_user?.full_name ?? 'Unknown'}
+                                      </span>
+                                      <span className="neg-msg-role">{roleName}</span>
+                                      <span className="neg-msg-time">{timeAgo(p.created_at)}</span>
+                                      {resolved && (
+                                        <span className={`badge badge-sm ${p.status === 'accepted' ? 'badge-success' : p.status === 'rejected' ? 'badge-error' : 'badge-muted'}`}>
+                                          {p.status === 'accepted' ? 'Agreed' : p.status === 'rejected' ? 'Rejected' : p.status}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    <div className="neg-msg-body">
+                                      <span className="neg-msg-label">Proposed:</span>
+                                      <blockquote>{p.proposed_content}</blockquote>
+                                    </div>
+
+                                    {p.comment && (
+                                      <div className="neg-msg-comment">
+                                        <span className="neg-msg-label">Note:</span> {p.comment}
+                                      </div>
+                                    )}
+
+                                    {/* Actions — only on others' pending proposals */}
+                                    {!isMe && p.status === 'pending' && (
+                                      <div className="neg-msg-actions">
+                                        <button className="btn-accept btn-sm" onClick={() => handleAcceptProposal(p.id)}>Accept</button>
+                                        <button className="btn-reject btn-sm" onClick={() => handleRejectProposal(p.id)}>Reject</button>
+                                        <button className="btn-secondary btn-sm" onClick={() => setProposalText(p.proposed_content)}>Counter</button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              <div ref={conversationEndRef} />
+                            </>
+                          )}
+                        </div>
+
+                        {/* ── Propose an edit ── */}
+                        <div className="clause-proposal-area">
+                          <label className="proposal-label">
+                            {proposals.length > 0 ? 'Reply / Counter-Propose' : 'Propose an Edit'}
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={proposalText}
+                            onChange={e => setProposalText(e.target.value)}
+                            placeholder="Type your proposed clause wording…"
+                          />
+                          <textarea
+                            rows={2}
+                            className="proposal-comment-input"
+                            value={commentText}
+                            onChange={e => setCommentText(e.target.value)}
+                            placeholder="Add a note or reason for this change (optional)"
+                          />
+                          <div className="form-actions">
+                            <button className="btn-secondary btn-sm" onClick={() => { setActiveNeg(null); setProposals([]); setProposalText(''); setCommentText(''); }}>
+                              Close
+                            </button>
+                            <button className="btn-primary btn-sm" onClick={handleCreateProposal} disabled={!proposalText.trim()}>
+                              {proposals.length > 0 ? 'Counter' : 'Submit Proposal'}
+                            </button>
                           </div>
-                        ) : proposals.length === 0 ? (
-                          <p className="no-proposals">No proposals yet. Be the first to suggest an edit.</p>
-                        ) : (
-                          proposals.map(p => {
-                            const isMyProposal = p.proposed_by === user?.id;
-                            const roleName = p.proposed_by_user?.role ?? 'unknown';
-                            const roleClass = `role-${roleName}`;
-                            return (
-                              <div key={p.id} className={`proposal-item ${p.status !== 'pending' ? 'proposal-item--resolved' : ''}`}>
-                                <div className="proposal-header">
-                                  <span className={`proposal-role-badge ${roleClass}`}>
-                                    {p.proposed_by_user?.full_name ?? 'Unknown'}
-                                  </span>
-                                  <span className="proposal-role-tag">{roleName}</span>
-                                  <span className="proposal-time">{timeAgo(p.created_at)}</span>
-                                  {p.status !== 'pending' && (
-                                    <span className={`badge badge-sm ${p.status === 'accepted' ? 'badge-success' : p.status === 'rejected' ? 'badge-error' : 'badge-muted'}`}>
-                                      {p.status}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="proposal-content">
-                                  {p.proposed_content}
-                                </div>
-                                {p.comment && (
-                                  <div className="proposal-comment">
-                                    <em>"{p.comment}"</em>
-                                  </div>
-                                )}
-                                {/* Accept/Reject buttons for others' pending proposals */}
-                                {!isMyProposal && p.status === 'pending' && (
-                                  <div className="proposal-actions">
-                                    <button className="btn-accept btn-sm" onClick={() => handleAcceptProposal(p.id)}>
-                                      Accept
-                                    </button>
-                                    <button className="btn-reject btn-sm" onClick={() => handleRejectProposal(p.id)}>
-                                      Reject
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-
-                      {/* Propose an edit */}
-                      <div className="clause-proposal-area">
-                        <h5>Propose an Edit</h5>
-                        <textarea
-                          rows={4}
-                          value={proposalText}
-                          onChange={e => setProposalText(e.target.value)}
-                          placeholder="Type your proposed wording for this clause…"
-                        />
-                        <div className="form-actions">
-                          <button className="btn-secondary btn-sm" onClick={() => { setActiveNeg(null); setProposals([]); setProposalText(''); }}>
-                            Close
-                          </button>
-                          <button className="btn-primary btn-sm" onClick={handleCreateProposal} disabled={!proposalText.trim()}>
-                            Submit
-                          </button>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </main>

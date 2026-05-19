@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -6,15 +6,22 @@ import { useAuth } from '../context/AuthContext';
 type UserRole = 'shipowner' | 'charterer' | 'broker';
 
 export default function Register() {
-  const [email, setEmail] = useState('');
+  const [searchParams] = useSearchParams();
+  const prefillEmail = searchParams.get('email') ?? '';
+  const redirect = searchParams.get('redirect') ?? '/dashboard';
+
+  const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<UserRole>('charterer');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { signup, error, clearError } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const redirect = searchParams.get('redirect') ?? '/dashboard';
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (prefillEmail) nameRef.current?.focus();
+  }, [prefillEmail]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -43,10 +50,17 @@ export default function Register() {
           </div>
         )}
 
+        {prefillEmail && (
+          <div className="invite-email-hint">
+            Creating an account for <strong>{prefillEmail}</strong> to join a negotiation
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
             <label htmlFor="fullName">Full Name</label>
             <input
+              ref={nameRef}
               id="fullName"
               type="text"
               value={fullName}
@@ -67,6 +81,8 @@ export default function Register() {
               placeholder="you@example.com"
               required
               autoComplete="email"
+              readOnly={!!prefillEmail}
+              style={prefillEmail ? { background: 'var(--color-bg)', color: 'var(--color-text-secondary)' } : undefined}
             />
           </div>
 
@@ -105,7 +121,7 @@ export default function Register() {
 
         <div className="auth-footer">
           <p>
-            Already have an account? <Link to={`/login?redirect=${encodeURIComponent(redirect)}`}>Sign in</Link>
+            Already have an account? <Link to={`/login?redirect=${encodeURIComponent(redirect)}${prefillEmail ? `&email=${encodeURIComponent(prefillEmail)}` : ''}`}>Sign in</Link>
           </p>
         </div>
       </div>

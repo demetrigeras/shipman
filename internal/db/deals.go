@@ -33,15 +33,16 @@ type DealParticipant struct {
 }
 
 type DealInvite struct {
-	ID        uuid.UUID  `json:"id"`
-	DealID    uuid.UUID  `json:"deal_id"`
-	Token     string     `json:"token"`
-	Role      string     `json:"role"`
-	CreatedBy uuid.UUID  `json:"created_by"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	UsedAt    *time.Time `json:"used_at,omitempty"`
-	UsedBy    *uuid.UUID `json:"used_by,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID           uuid.UUID  `json:"id"`
+	DealID       uuid.UUID  `json:"deal_id"`
+	Token        string     `json:"token"`
+	Role         string     `json:"role"`
+	InvitedEmail string     `json:"invited_email"`
+	CreatedBy    uuid.UUID  `json:"created_by"`
+	ExpiresAt    time.Time  `json:"expires_at"`
+	UsedAt       *time.Time `json:"used_at,omitempty"`
+	UsedBy       *uuid.UUID `json:"used_by,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 type DealWithParticipants struct {
@@ -226,18 +227,18 @@ func (repo *DealRepository) CreateInvite(ctx context.Context, i *DealInvite) err
 	i.Token = hex.EncodeToString(token)
 
 	const query = `
-		INSERT INTO shipman.deal_invites (deal_id, token, role, created_by, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO shipman.deal_invites (deal_id, token, role, invited_email, created_by, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at
 	`
 	return Pool.QueryRowContext(ctx, query,
-		i.DealID, i.Token, i.Role, i.CreatedBy, i.ExpiresAt,
+		i.DealID, i.Token, i.Role, i.InvitedEmail, i.CreatedBy, i.ExpiresAt,
 	).Scan(&i.ID, &i.CreatedAt)
 }
 
 func (repo *DealRepository) GetInviteByToken(ctx context.Context, token string) (DealInvite, error) {
 	const query = `
-		SELECT id, deal_id, token, role, created_by, expires_at, used_at, used_by, created_at
+		SELECT id, deal_id, token, role, COALESCE(invited_email, ''), created_by, expires_at, used_at, used_by, created_at
 		FROM shipman.deal_invites
 		WHERE token = $1
 	`
@@ -246,7 +247,7 @@ func (repo *DealRepository) GetInviteByToken(ctx context.Context, token string) 
 	var usedBy sql.NullString
 
 	err := Pool.QueryRowContext(ctx, query, token).Scan(
-		&i.ID, &i.DealID, &i.Token, &i.Role, &i.CreatedBy, &i.ExpiresAt, &usedAt, &usedBy, &i.CreatedAt,
+		&i.ID, &i.DealID, &i.Token, &i.Role, &i.InvitedEmail, &i.CreatedBy, &i.ExpiresAt, &usedAt, &usedBy, &i.CreatedAt,
 	)
 	if err != nil {
 		return i, err
@@ -270,5 +271,11 @@ func (repo *DealRepository) UseInvite(ctx context.Context, token string, userID 
 		WHERE token = $1
 	`
 	_, err := Pool.ExecContext(ctx, query, token, userID)
+	return err
+}
+
+func (repo *DealRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	const query = `UPDATE shipman.deals SET status = $2 WHERE id = $1`
+	_, err := Pool.ExecContext(ctx, query, id, status)
 	return err
 }

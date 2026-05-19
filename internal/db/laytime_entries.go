@@ -59,10 +59,11 @@ func (repo *LaytimeEntryRepository) Create(ctx context.Context, entry *LaytimeEn
 		RETURNING id, created_at, updated_at
 	`
 
+	charterID := &entry.CharterDetailID
 	return Pool.QueryRowContext(
 		ctx,
 		query,
-		entry.CharterDetailID,
+		nullableUUID(charterID),
 		nullableUUID(entry.VoyageID),
 		entry.PortName,
 		entry.Activity,
@@ -93,16 +94,17 @@ func (repo *LaytimeEntryRepository) Retrieve(ctx context.Context, id uuid.UUID) 
 	`
 
 	var (
-		entry   LaytimeEntry
-		rawVoy  sql.NullString
-		end     sql.NullTime
-		hours   sql.NullFloat64
-		remarks sql.NullString
+		entry    LaytimeEntry
+		rawChart sql.NullString
+		rawVoy   sql.NullString
+		end      sql.NullTime
+		hours    sql.NullFloat64
+		remarks  sql.NullString
 	)
 
 	err := Pool.QueryRowContext(ctx, query, id).Scan(
 		&entry.ID,
-		&entry.CharterDetailID,
+		&rawChart,
 		&rawVoy,
 		&entry.PortName,
 		&entry.Activity,
@@ -117,6 +119,11 @@ func (repo *LaytimeEntryRepository) Retrieve(ctx context.Context, id uuid.UUID) 
 		return LaytimeEntry{}, err
 	}
 
+	if rawChart.Valid {
+		if parsed, parseErr := uuid.Parse(rawChart.String); parseErr == nil {
+			entry.CharterDetailID = parsed
+		}
+	}
 	if rawVoy.Valid {
 		if parsed, parseErr := uuid.Parse(rawVoy.String); parseErr == nil {
 			entry.VoyageID = &parsed

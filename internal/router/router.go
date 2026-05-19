@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"shipman/internal/auth"
+	"shipman/internal/coinsub"
 	"shipman/internal/email"
 	"shipman/internal/router/groups/deals"
 	"shipman/internal/router/groups/documents"
 	"shipman/internal/router/groups/marketplace"
 	"shipman/internal/router/groups/users"
+	"shipman/internal/router/groups/voyages"
 	"shipman/internal/storage"
 
 	"github.com/gin-gonic/gin"
@@ -20,23 +22,29 @@ type Router struct {
 	engine       *gin.Engine
 	jwtManager   *auth.JWTManager
 	storage      storage.Storage
-	openAIAPIKey string
+	aiProvider   string
+	aiAPIKey     string
 	aiModel      string
 	aiBaseURL    string
 	emailSvc     *email.Service
 	appURL       string
+	marineAPIKey string
+	coinsubClient *coinsub.Client
 }
 
-func Setup(jwtSecret string, store storage.Storage, openAIKey, aiModel, aiBaseURL string, emailCfg email.Config, appURL string) *gin.Engine {
+func Setup(jwtSecret string, store storage.Storage, aiProvider, aiAPIKey, aiModel, aiBaseURL string, emailCfg email.Config, appURL, marineAPIKey string, coinsubKey, coinsubMerchantID, coinsubSecret string) *gin.Engine {
 	r := &Router{
-		engine:       gin.New(),
-		jwtManager:   auth.NewJWTManager(jwtSecret, 24*time.Hour),
-		storage:      store,
-		openAIAPIKey: openAIKey,
-		aiModel:      aiModel,
-		aiBaseURL:    aiBaseURL,
-		emailSvc:     email.NewService(emailCfg),
-		appURL:       appURL,
+		engine:        gin.New(),
+		jwtManager:    auth.NewJWTManager(jwtSecret, 24*time.Hour),
+		storage:       store,
+		aiProvider:    aiProvider,
+		aiAPIKey:      aiAPIKey,
+		aiModel:       aiModel,
+		aiBaseURL:     aiBaseURL,
+		emailSvc:      email.NewService(emailCfg),
+		appURL:        appURL,
+		marineAPIKey:  marineAPIKey,
+		coinsubClient: coinsub.NewClient(coinsubKey, coinsubMerchantID, coinsubSecret),
 	}
 
 	r.engine.Use(gin.Logger())
@@ -74,12 +82,17 @@ func (r *Router) registerAPIRoutes() {
 	protectedUsers.Use(r.authMiddleware())
 	userHandler.AddProtectedRoutes(protectedUsers)
 
-	docHandler := documents.NewHandler(r.storage, r.openAIAPIKey, r.aiModel, r.aiBaseURL)
+	docHandler := documents.NewHandler(r.storage, r.aiProvider, r.aiAPIKey, r.aiModel, r.aiBaseURL)
+	// Public route: serve PDF for iframe preview (token passed as query param)
+	v1.GET("/documents/:id/view", r.tokenFromQueryMiddleware(), docHandler.HandleView)
 	docsGroup := v1.Group("/documents")
 	docsGroup.Use(r.authMiddleware())
 	docHandler.AddRoutes(docsGroup)
 
 	dealHandler := deals.NewHandler(r.emailSvc, r.appURL)
+	publicDeals := v1.Group("/deals")
+	dealHandler.AddPublicRoutes(publicDeals)
+
 	dealsGroup := v1.Group("/deals")
 	dealsGroup.Use(r.authMiddleware())
 	dealHandler.AddRoutes(dealsGroup)
@@ -88,6 +101,23 @@ func (r *Router) registerAPIRoutes() {
 	marketplaceGroup := v1.Group("/marketplace")
 	marketplaceGroup.Use(r.authMiddleware())
 	marketplaceHandler.AddRoutes(marketplaceGroup)
+
+	voyageHandler := voyages.NewHandler(r.marineAPIKey, r.aiProvider, r.aiAPIKey, r.aiModel, r.aiBaseURL, r.emailSvc, r.appURL)
+	publicVoyages := v1.Group("/voyages")
+	voyageHandler.AddPublicRoutes(publicVoyages)
+
+	voyagesGroup := v1.Group("/voyages")
+	voyagesGroup.Use(r.authMiddleware())
+	voyageHandler.AddRoutes(voyagesGroup)
+
+	paymentHandler := voyages.NewPaymentHandler(r.coinsubClient, r.appURL)
+	paymentHandler.AddRoutes(voyagesGroup)
+	paymentHandler.AddPublicRoutes(v1)
+	paymentHandler.AddUserRoutes(protectedUsers)
+
+	adminGroup := v1.Group("/admin")
+	adminGroup.Use(r.authMiddleware())
+	paymentHandler.AddAdminRoutes(adminGroup)
 }
 
 func corsMiddleware() gin.HandlerFunc {
@@ -135,6 +165,33 @@ func (r *Router) authMiddleware() gin.HandlerFunc {
 		c.Set("userRole", claims.Role)
 		c.Set("userFullName", claims.FullName)
 
+		c.Next()
+	}
+}
+
+// tokenFromQueryMiddleware reads the JWT from ?token= query param (for iframe use).
+func (r *Router) tokenFromQueryMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.Query("token")
+		if token == "" {
+			// Also accept Authorization header so the route works either way
+			authHeader := c.GetHeader("Authorization")
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 {
+				token = parts[1]
+			}
+		}
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+			return
+		}
+		claims, err := r.jwtManager.Verify(token)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			return
+		}
+		c.Set("userID", claims.UserID)
+		c.Set("userEmail", claims.Email)
 		c.Next()
 	}
 }

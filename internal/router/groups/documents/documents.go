@@ -3,7 +3,10 @@ package documents
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strconv"
 
 	"shipman/internal/ai"
@@ -22,10 +25,16 @@ type Handler struct {
 	aiService ai.ClauseExtractor
 }
 
-func NewHandler(store storage.Storage, openAIKey, aiModel, aiBaseURL string) *Handler {
+func NewHandler(store storage.Storage, aiProvider, apiKey, aiModel, aiBaseURL string) *Handler {
 	var aiService ai.ClauseExtractor
-	if openAIKey != "" {
-		aiService = ai.NewOpenAIExtractor(openAIKey, aiModel, aiBaseURL)
+	if apiKey != "" {
+		switch aiProvider {
+		case "gemini":
+			aiService = ai.NewGeminiExtractor(apiKey, aiModel)
+		default:
+			// "openai" or "deepseek" — both use OpenAI-compatible API
+			aiService = ai.NewOpenAIExtractor(apiKey, aiModel, aiBaseURL)
+		}
 	}
 
 	return &Handler{
@@ -40,6 +49,7 @@ func (h *Handler) AddRoutes(r *gin.RouterGroup) {
 	r.POST("", h.handleUpload)
 	r.GET("", h.handleList)
 	r.GET("/:id", h.handleGet)
+	// GET /:id/view is registered once in router.go (with query-token middleware for iframes)
 	r.POST("/:id/process", h.handleProcess)
 	r.POST("/:id/analyze", h.handleAnalyze)
 	r.DELETE("/:id", h.handleDelete)
@@ -250,7 +260,7 @@ func (h *Handler) handleAnalyze(c *gin.Context) {
 	if h.aiService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "AI service not configured",
-			"details": "Add your OpenAI API key to config/config.local.yaml under ai.openai_api_key (get one at platform.openai.com/api-keys)",
+			"details": "Add your API key to config/config.local.yaml under ai.openai_api_key. For free Gemini: https://aistudio.google.com/apikey",
 		})
 		return
 	}
@@ -302,6 +312,8 @@ func (h *Handler) handleAnalyze(c *gin.Context) {
 
 	result, err := h.aiService.ExtractClauses(c.Request.Context(), *doc.ExtractedText)
 	if err != nil {
+		// Log the full error to terminal for debugging
+		log.Printf("AI analysis failed for doc %s: %v", docID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "AI analysis failed",
 			"details": err.Error(),
@@ -366,4 +378,43 @@ func (h *Handler) handleDelete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "document deleted"})
+}
+
+// HandleView is the exported version for use outside the route group (e.g. with query-param token).
+func (h *Handler) HandleView(c *gin.Context) { h.handleView(c) }
+
+// handleView serves the raw document file (PDF, TXT, etc.) for inline preview.
+func (h *Handler) handleView(c *gin.Context) {
+	docID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid document ID"})
+		return
+	}
+
+	doc, err := h.docRepo.Retrieve(c.Request.Context(), docID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve document"})
+		return
+	}
+
+	f, err := h.storage.Get(doc.StoragePath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found on disk"})
+		return
+	}
+	defer f.Close()
+
+	// Determine content type from file extension
+	ext := filepath.Ext(doc.StoragePath)
+	contentType := mime.TypeByExtension(ext)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	c.Header("Content-Disposition", "inline; filename=\""+doc.OriginalFilename+"\"")
+	c.DataFromReader(http.StatusOK, -1, contentType, f, nil)
 }

@@ -31,10 +31,13 @@ func NewHandler(emailSvc *email.Service, appURL string) *Handler {
 	}
 }
 
-func (h *Handler) AddRoutes(r *gin.RouterGroup) {
-	// Public — token preview (used by the join page before auth)
+// AddPublicRoutes registers routes that don't need authentication (invite preview).
+func (h *Handler) AddPublicRoutes(r *gin.RouterGroup) {
 	r.GET("/invite/:token", h.handleGetInvitePreview)
+}
 
+// AddRoutes registers routes that require authentication.
+func (h *Handler) AddRoutes(r *gin.RouterGroup) {
 	r.POST("", h.handleCreate)
 	r.GET("", h.handleList)
 	r.GET("/:id", h.handleGet)
@@ -375,11 +378,12 @@ func (h *Handler) handleGetInvitePreview(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":      token,
-		"role":       invite.Role,
-		"deal_id":    invite.DealID,
-		"deal_title": dealTitle,
-		"expires_at": invite.ExpiresAt,
+		"token":         token,
+		"role":          invite.Role,
+		"deal_id":       invite.DealID,
+		"deal_title":    dealTitle,
+		"invited_email": invite.InvitedEmail,
+		"expires_at":    invite.ExpiresAt,
 	})
 }
 
@@ -413,10 +417,11 @@ func (h *Handler) handleCreateInvite(c *gin.Context) {
 	}
 
 	invite := &db.DealInvite{
-		DealID:    dealID,
-		Role:      req.Role,
-		CreatedBy: userID,
-		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		DealID:       dealID,
+		Role:         req.Role,
+		InvitedEmail: req.Email,
+		CreatedBy:    userID,
+		ExpiresAt:    time.Now().Add(7 * 24 * time.Hour),
 	}
 
 	if err := h.dealRepo.CreateInvite(c.Request.Context(), invite); err != nil {
@@ -517,6 +522,7 @@ type CreateNegotiationRequest struct {
 	ClauseType      string `json:"clause_type" binding:"required"`
 	ClauseTitle     string `json:"clause_title" binding:"required"`
 	OriginalContent string `json:"original_content" binding:"required"`
+	SortOrder       int    `json:"sort_order"`
 }
 
 func (h *Handler) handleCreateNegotiation(c *gin.Context) {
@@ -546,6 +552,7 @@ func (h *Handler) handleCreateNegotiation(c *gin.Context) {
 		ClauseTitle:     req.ClauseTitle,
 		OriginalContent: req.OriginalContent,
 		Status:          "pending",
+		SortOrder:       req.SortOrder,
 	}
 
 	if err := h.negRepo.CreateNegotiation(c.Request.Context(), negotiation); err != nil {
@@ -687,6 +694,12 @@ func (h *Handler) handleUpdateProposalStatus(c *gin.Context) {
 		return
 	}
 
+	negotiationID, err := uuid.Parse(c.Param("negotiationId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid negotiation ID"})
+		return
+	}
+
 	proposalID, err := uuid.Parse(c.Param("proposalId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid proposal ID"})
@@ -699,15 +712,34 @@ func (h *Handler) handleUpdateProposalStatus(c *gin.Context) {
 		return
 	}
 
-	if err := h.negRepo.UpdateProposalStatus(c.Request.Context(), proposalID, req.Status); err != nil {
+	ctx := c.Request.Context()
+
+	if err := h.negRepo.UpdateProposalStatus(ctx, proposalID, req.Status); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update proposal"})
 		return
 	}
 
-	negotiationID, _ := uuid.Parse(c.Param("negotiationId"))
+	dealCompleted := false
+
 	if req.Status == "accepted" {
-		h.negRepo.UpdateStatus(c.Request.Context(), negotiationID, "accepted")
+		// Supersede all other pending proposals on this negotiation
+		h.negRepo.SupersedeOtherProposals(ctx, negotiationID, proposalID)
+		// Mark the negotiation itself as accepted
+		h.negRepo.UpdateStatus(ctx, negotiationID, "accepted")
+
+		// Check if ALL negotiations on the deal are now accepted
+		allDone, err := h.negRepo.AllNegotiationsAccepted(ctx, dealID)
+		if err == nil && allDone {
+			h.dealRepo.UpdateStatus(ctx, dealID, "completed")
+			dealCompleted = true
+		}
+	} else if req.Status == "rejected" {
+		// Negotiation stays open for further proposals
+		h.negRepo.UpdateStatus(ctx, negotiationID, "open")
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "proposal updated"})
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "proposal updated",
+		"deal_completed": dealCompleted,
+	})
 }

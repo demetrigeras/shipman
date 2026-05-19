@@ -1,10 +1,110 @@
 const API_BASE = '/api/v1';
 
+export interface ExtractedTerms {
+  vessel_name?: string;
+  imo_number?: string;
+  vessel_type?: string;
+  dwt?: number;
+  flag_state?: string;
+  hire_rate?: number;
+  freight_rate?: number;
+  cargo_type?: string;
+  cargo_quantity?: number;
+  load_port?: string;
+  discharge_port?: string;
+  laytime_allowed_hours?: number;
+  demurrage_rate?: number;
+  despatch_rate?: number;
+  currency?: string;
+  raw_summary?: string;
+}
+
+export interface Voyage {
+  id: string;
+  deal_id?: string;
+  owner_user_id?: string;
+  document_id?: string;
+  charter_type?: string;
+  voyage_number?: string;
+  vessel_name?: string;
+  imo_number?: string;
+  vessel_type?: string;
+  dwt?: number;
+  flag_state?: string;
+  departure_port?: string;
+  arrival_port?: string;
+  planned_departure_at?: string;
+  planned_arrival_at?: string;
+  actual_departure_at?: string;
+  actual_arrival_at?: string;
+  hire_rate?: number;
+  freight_rate?: number;
+  cargo_quantity?: number;
+  cargo_type?: string;
+  laytime_allowed_hours?: number;
+  demurrage_rate?: number;
+  despatch_rate?: number;
+  demurrage_currency: string;
+  payment_frequency?: string;
+  first_payment_date?: string;
+  total_contract_value?: number;
+  commission_rate?: number;
+  bunker_cost?: number;
+  port_costs?: number;
+  insurance_cost?: number;
+  counterparty_name?: string;
+  counterparty_email?: string;
+  status: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShipPosition {
+  id: string;
+  voyage_id: string;
+  recorded_at: string;
+  latitude: number;
+  longitude: number;
+  speed_knots?: number;
+  heading?: number;
+  distance_logged_nm?: number;
+  fuel_remaining_mt?: number;
+  source: string;
+  remarks?: string;
+  created_at: string;
+}
+
+export interface LaytimeEntry {
+  id: string;
+  voyage_id?: string;
+  port_name: string;
+  activity: string;
+  started_at: string;
+  ended_at?: string;
+  hours_counted?: number;
+  remarks?: string;
+  created_at: string;
+}
+
+export interface LaytimeSummary {
+  total_hours_used: number;
+  total_hours_allowed: number;
+  balance_hours: number;
+  demurrage_hours: number;
+  despatch_hours: number;
+  demurrage_amount?: number;
+  despatch_amount?: number;
+  currency: string;
+}
+
 export interface User {
   id: string;
   email: string;
   full_name: string;
   role: 'shipowner' | 'charterer' | 'broker';
+  coinsub_merchant_id?: string;
+  wallet_address?: string;
   created_at: string;
   updated_at: string;
 }
@@ -165,7 +265,8 @@ export interface ClauseNegotiation {
   clause_type: string;
   clause_title: string;
   original_content: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'countered';
+  status: 'pending' | 'open' | 'accepted' | 'rejected' | 'countered';
+  sort_order: number;
   created_at: string;
 }
 
@@ -233,6 +334,26 @@ export interface NegotiationWithProposals extends ClauseNegotiation {
   proposals: ClauseProposal[];
 }
 
+export interface VoyagePayment {
+  id: string;
+  voyage_id: string;
+  created_by: string;
+  payment_type: 'hire' | 'freight' | 'demurrage' | 'despatch' | 'bunker' | 'port_charges' | 'other';
+  description?: string;
+  amount: number;
+  currency: string;
+  recipient_email?: string;
+  coinsub_session_id?: string;
+  coinsub_payment_id?: string;
+  coinsub_checkout_url?: string;
+  coinsub_tx_hash?: string;
+  coinsub_agreement_id?: string;
+  status: 'draft' | 'pending' | 'completed' | 'failed' | 'cancelled';
+  paid_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Vessel {
   id: string;
   name: string;
@@ -276,6 +397,7 @@ export const api = {
       }),
     
     me: () => request<User>('/users/me'),
+
   },
 
   documents: {
@@ -324,9 +446,9 @@ export const api = {
       }),
 
     previewInvite: (token: string) =>
-      request<{ token: string; role: string; deal_id: string; deal_title: string; expires_at: string }>(`/deals/invite/${token}`),
+      request<{ token: string; role: string; deal_id: string; deal_title: string; invited_email: string; expires_at: string }>(`/deals/invite/${token}`),
     
-    createNegotiation: (dealId: string, data: { clause_type: string; clause_title: string; original_content: string }) =>
+    createNegotiation: (dealId: string, data: { clause_type: string; clause_title: string; original_content: string; sort_order?: number }) =>
       request<ClauseNegotiation>(`/deals/${dealId}/negotiations`, {
         method: 'POST',
         body: JSON.stringify(data),
@@ -345,7 +467,7 @@ export const api = {
       }),
     
     updateProposalStatus: (dealId: string, negotiationId: string, proposalId: string, status: 'accepted' | 'rejected') =>
-      request<{ message: string }>(`/deals/${dealId}/negotiations/${negotiationId}/proposals/${proposalId}`, {
+      request<{ message: string; deal_completed: boolean }>(`/deals/${dealId}/negotiations/${negotiationId}/proposals/${proposalId}`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       }),
@@ -369,6 +491,79 @@ export const api = {
       }),
   },
 
+  voyages: {
+    list: () => request<Voyage[]>('/voyages'),
+    get: (id: string) => request<Voyage>(`/voyages/${id}`),
+    create: (data: Partial<Voyage> & { deal_id?: string }) =>
+      request<Voyage>('/voyages', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Voyage> & { clear_document?: boolean }) =>
+      request<Voyage>(`/voyages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) =>
+      request<{ message: string }>(`/voyages/${id}`, { method: 'DELETE' }),
+
+    listPositions: (id: string) => request<ShipPosition[]>(`/voyages/${id}/positions`),
+    addPosition: (id: string, data: Partial<ShipPosition> & { recorded_at: string }) =>
+      request<ShipPosition>(`/voyages/${id}/positions`, { method: 'POST', body: JSON.stringify(data) }),
+    getLivePosition: (id: string) =>
+      request<{ source: string; position: ShipPosition | null; hint?: string }>(`/voyages/${id}/position/live`),
+
+    listLaytime: (id: string) => request<LaytimeEntry[]>(`/voyages/${id}/laytime`),
+    addLaytime: (id: string, data: Partial<LaytimeEntry> & { port_name: string; activity: string; started_at: string }) =>
+      request<LaytimeEntry>(`/voyages/${id}/laytime`, { method: 'POST', body: JSON.stringify(data) }),
+    updateLaytime: (id: string, entryId: string, data: Partial<LaytimeEntry>) =>
+      request<LaytimeEntry>(`/voyages/${id}/laytime/${entryId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteLaytime: (id: string, entryId: string) =>
+      request<{ message: string }>(`/voyages/${id}/laytime/${entryId}`, { method: 'DELETE' }),
+    getLaytimeSummary: (id: string) => request<LaytimeSummary>(`/voyages/${id}/laytime/summary`),
+
+    attachDocument: (id: string, documentId: string) =>
+      request<{ message: string; document_id: string }>(`/voyages/${id}/attach-document`, {
+        method: 'POST', body: JSON.stringify({ document_id: documentId }),
+      }),
+    extractTerms: (id: string, documentId?: string) =>
+      request<ExtractedTerms>(`/voyages/${id}/extract-terms`, {
+        method: 'POST',
+        body: JSON.stringify(documentId ? { document_id: documentId } : {}),
+      }),
+    /** Scan charter party text without creating a voyage (uses processed document). */
+    extractTermsPreview: (documentId: string) =>
+      request<ExtractedTerms>('/voyages/extract-terms-preview', {
+        method: 'POST',
+        body: JSON.stringify({ document_id: documentId }),
+      }),
+
+    listPayments: (id: string) => request<VoyagePayment[]>(`/voyages/${id}/payments`),
+    createPayment: (id: string, data: { payment_type: string; name?: string; description?: string; amount: number; currency?: string }) =>
+      request<VoyagePayment>(`/voyages/${id}/payments`, { method: 'POST', body: JSON.stringify(data) }),
+    checkoutPayment: (voyageId: string, paymentId: string, opts?: { recurring?: boolean; interval?: string; frequency?: string; duration?: string }) =>
+      request<{ checkout_url: string; session_id: string }>(`/voyages/${voyageId}/payments/${paymentId}/checkout`, {
+        method: 'POST', body: JSON.stringify(opts ?? {}),
+      }),
+    transferPayment: (voyageId: string, paymentId: string, toAddress: string, chainId?: number, token?: string) =>
+      request<{ message: string; fee: number }>(`/voyages/${voyageId}/payments/${paymentId}/transfer`, {
+        method: 'POST', body: JSON.stringify({ to_address: toAddress, chain_id: chainId, token }),
+      }),
+    deletePayment: (voyageId: string, paymentId: string) =>
+      request<{ message: string }>(`/voyages/${voyageId}/payments/${paymentId}`, { method: 'DELETE' }),
+    markPaid: (voyageId: string, paymentId: string) =>
+      request<VoyagePayment>(`/voyages/${voyageId}/payments/${paymentId}/mark-paid`, { method: 'POST' }),
+
+    createInvite: (id: string, inviteEmail: string, role: string) =>
+      request<{ invite_token: string; invite_link: string; expires_at: string; role: string; email_sent: boolean }>(
+        `/voyages/${id}/invite`,
+        { method: 'POST', body: JSON.stringify({ email: inviteEmail, role }) },
+      ),
+    previewInvite: (token: string) =>
+      request<{ token: string; type: string; role: string; voyage_id: string; fixture_title: string; invited_email: string; expires_at: string }>(
+        `/voyages/invite/${token}`,
+      ),
+    joinVoyage: (token: string) =>
+      request<{ message: string; voyage_id: string; role: string }>(
+        '/voyages/join',
+        { method: 'POST', body: JSON.stringify({ token }) },
+      ),
+  },
+
   marketplace: {
     listVessels: (limit = 20, offset = 0) =>
       request<{ data: Vessel[] }>(`/marketplace/vessels?limit=${limit}&offset=${offset}`),
@@ -390,6 +585,17 @@ export const api = {
     
     deleteVessel: (id: string) =>
       request<{ message: string }>(`/marketplace/vessels/${id}`, { method: 'DELETE' }),
+  },
+
+  admin: {
+    coinsubStatus: () =>
+      request<{ enabled: boolean; merchant_id: string; webhook_url: string }>('/admin/coinsub/status'),
+
+    registerWebhook: (webhookUrl: string) =>
+      request<{ message: string; webhook_id: number; signing_secret: string; status: string; note: string }>(
+        '/admin/coinsub/register-webhook',
+        { method: 'POST', body: JSON.stringify({ webhook_url: webhookUrl }) },
+      ),
   },
 };
 

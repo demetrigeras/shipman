@@ -8,230 +8,245 @@ import (
 	"github.com/google/uuid"
 )
 
-// Payment mirrors shipman.payments rows.
-type Payment struct {
-	ID              uuid.UUID  `json:"id"`
-	CharterDetailID uuid.UUID  `json:"charter_detail_id"`
-	VoyageID        *uuid.UUID `json:"voyage_id,omitempty"`
-	Category        string     `json:"category"`
-	DueDate         *time.Time `json:"due_date,omitempty"`
-	PaidAt          *time.Time `json:"paid_at,omitempty"`
-	Amount          float64    `json:"amount"`
-	Currency        string     `json:"currency"`
-	Status          string     `json:"status"`
-	PaymentMethod   *string    `json:"payment_method,omitempty"`
-	Reference       *string    `json:"reference,omitempty"`
-	Notes           *string    `json:"notes,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+type VoyagePayment struct {
+	ID                  uuid.UUID  `json:"id"`
+	VoyageID            uuid.UUID  `json:"voyage_id"`
+	CreatedBy           uuid.UUID  `json:"created_by"`
+	PaymentType         string     `json:"payment_type"`
+	Description         *string    `json:"description,omitempty"`
+	Amount              float64    `json:"amount"`
+	Currency            string     `json:"currency"`
+	RecipientEmail      *string    `json:"recipient_email,omitempty"`
+	RecipientWallet     *string    `json:"recipient_wallet,omitempty"`
+	CoinsubSessionID    *string    `json:"coinsub_session_id,omitempty"`
+	CoinsubPaymentID    *string    `json:"coinsub_payment_id,omitempty"`
+	CoinsubAgreementID  *string    `json:"coinsub_agreement_id,omitempty"`
+	CoinsubCheckoutURL  *string    `json:"coinsub_checkout_url,omitempty"`
+	CoinsubTxHash       *string    `json:"coinsub_tx_hash,omitempty"`
+	Status              string     `json:"status"`
+	PaidAt              *time.Time `json:"paid_at,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
-// PaymentService exposes CRUD behaviour for payments.
-type PaymentService interface {
-	Create(ctx context.Context, p *Payment) error
-	Retrieve(ctx context.Context, id uuid.UUID) (Payment, error)
-	ListByCharter(ctx context.Context, charterID uuid.UUID) ([]Payment, error)
-	Update(ctx context.Context, p *Payment) error
-	Delete(ctx context.Context, id uuid.UUID) error
-}
-
-// PaymentRepository implements PaymentService using Pool.
 type PaymentRepository struct{}
 
-// NewPaymentRepository returns repository.
 func NewPaymentRepository() *PaymentRepository {
 	return &PaymentRepository{}
 }
 
-// Create inserts a payment.
-func (repo *PaymentRepository) Create(ctx context.Context, p *Payment) error {
+func (repo *PaymentRepository) Create(ctx context.Context, p *VoyagePayment) error {
 	const query = `
-		INSERT INTO shipman.payments (
-			charter_detail_id,
-			voyage_id,
-			category,
-			due_date,
-			paid_at,
-			amount,
-			currency,
-			status,
-			payment_method,
-			reference,
-			notes
-		) VALUES (
-			$1, $2, COALESCE($3, 'general'), $4, $5, $6,
-			COALESCE($7, 'USD'), COALESCE($8, 'pending'), $9, $10, $11
-		)
-		RETURNING id, category, currency, status, created_at, updated_at
+		INSERT INTO shipman.voyage_payments
+			(voyage_id, created_by, payment_type, description, amount, currency,
+			 recipient_email, recipient_wallet, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, created_at, updated_at
 	`
-
-	return Pool.QueryRowContext(
-		ctx,
-		query,
-		p.CharterDetailID,
-		nullableUUID(p.VoyageID),
-		nullableString(&p.Category),
-		nullableTime(p.DueDate),
-		nullableTime(p.PaidAt),
-		p.Amount,
-		nullableString(&p.Currency),
-		nullableString(&p.Status),
-		nullableString(p.PaymentMethod),
-		nullableString(p.Reference),
-		nullableString(p.Notes),
-	).Scan(&p.ID, &p.Category, &p.Currency, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	return Pool.QueryRowContext(ctx, query,
+		p.VoyageID, p.CreatedBy, p.PaymentType, nullableString(p.Description),
+		p.Amount, p.Currency,
+		nullableString(p.RecipientEmail), nullableString(p.RecipientWallet),
+		p.Status,
+	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 }
 
-// Retrieve fetches a payment by id.
-func (repo *PaymentRepository) Retrieve(ctx context.Context, id uuid.UUID) (Payment, error) {
+func (repo *PaymentRepository) Retrieve(ctx context.Context, id uuid.UUID) (VoyagePayment, error) {
 	const query = `
-		SELECT
-			id,
-			charter_detail_id,
-			voyage_id,
-			category,
-			due_date,
-			paid_at,
-			amount,
-			currency,
-			status,
-			payment_method,
-			reference,
-			notes,
-			created_at,
-			updated_at
-		FROM shipman.payments
+		SELECT id, voyage_id, created_by, payment_type, description, amount, currency,
+		       recipient_email, recipient_wallet,
+		       coinsub_session_id, coinsub_payment_id, coinsub_agreement_id,
+		       coinsub_checkout_url, coinsub_tx_hash,
+		       status, paid_at, created_at, updated_at
+		FROM shipman.voyage_payments
 		WHERE id = $1
 	`
-
-	var (
-		payment   Payment
-		rawVoy    sql.NullString
-		due       sql.NullTime
-		paid      sql.NullTime
-		method    sql.NullString
-		reference sql.NullString
-		notes     sql.NullString
-	)
+	var p VoyagePayment
+	var desc, recEmail, recWallet sql.NullString
+	var csSession, csPayment, csAgreement, csCheckout, csTxHash sql.NullString
+	var paidAt sql.NullTime
 
 	err := Pool.QueryRowContext(ctx, query, id).Scan(
-		&payment.ID,
-		&payment.CharterDetailID,
-		&rawVoy,
-		&payment.Category,
-		&due,
-		&paid,
-		&payment.Amount,
-		&payment.Currency,
-		&payment.Status,
-		&method,
-		&reference,
-		&notes,
-		&payment.CreatedAt,
-		&payment.UpdatedAt,
+		&p.ID, &p.VoyageID, &p.CreatedBy, &p.PaymentType, &desc, &p.Amount, &p.Currency,
+		&recEmail, &recWallet,
+		&csSession, &csPayment, &csAgreement, &csCheckout, &csTxHash,
+		&p.Status, &paidAt, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
-		return Payment{}, err
+		return p, err
 	}
-
-	if rawVoy.Valid {
-		if parsed, parseErr := uuid.Parse(rawVoy.String); parseErr == nil {
-			payment.VoyageID = &parsed
-		} else {
-			return Payment{}, parseErr
-		}
+	p.Description = stringPtr(desc)
+	p.RecipientEmail = stringPtr(recEmail)
+	p.RecipientWallet = stringPtr(recWallet)
+	p.CoinsubSessionID = stringPtr(csSession)
+	p.CoinsubPaymentID = stringPtr(csPayment)
+	p.CoinsubAgreementID = stringPtr(csAgreement)
+	p.CoinsubCheckoutURL = stringPtr(csCheckout)
+	p.CoinsubTxHash = stringPtr(csTxHash)
+	if paidAt.Valid {
+		p.PaidAt = &paidAt.Time
 	}
-	payment.DueDate = timePtr(due)
-	payment.PaidAt = timePtr(paid)
-	payment.PaymentMethod = stringPtr(method)
-	payment.Reference = stringPtr(reference)
-	payment.Notes = stringPtr(notes)
-
-	return payment, nil
+	return p, nil
 }
 
-// ListByCharter returns payments for a charter.
-func (repo *PaymentRepository) ListByCharter(ctx context.Context, charterID uuid.UUID) ([]Payment, error) {
+func (repo *PaymentRepository) ListByVoyage(ctx context.Context, voyageID uuid.UUID) ([]VoyagePayment, error) {
 	const query = `
-		SELECT id, charter_detail_id, category, amount, status, due_date, paid_at, created_at, updated_at
-		FROM shipman.payments
-		WHERE charter_detail_id = $1
-		ORDER BY due_date NULLS LAST, created_at DESC
+		SELECT id, voyage_id, created_by, payment_type, description, amount, currency,
+		       recipient_email, recipient_wallet,
+		       coinsub_session_id, coinsub_payment_id, coinsub_agreement_id,
+		       coinsub_checkout_url, coinsub_tx_hash,
+		       status, paid_at, created_at, updated_at
+		FROM shipman.voyage_payments
+		WHERE voyage_id = $1
+		ORDER BY created_at DESC
 	`
-
-	rows, err := Pool.QueryContext(ctx, query, charterID)
+	rows, err := Pool.QueryContext(ctx, query, voyageID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var payments []Payment
+	var payments []VoyagePayment
 	for rows.Next() {
-		var (
-			payment Payment
-			due     sql.NullTime
-			paid    sql.NullTime
-		)
+		var p VoyagePayment
+		var desc, recEmail, recWallet sql.NullString
+		var csSession, csPayment, csAgreement, csCheckout, csTxHash sql.NullString
+		var paidAt sql.NullTime
+
 		if err := rows.Scan(
-			&payment.ID,
-			&payment.CharterDetailID,
-			&payment.Category,
-			&payment.Amount,
-			&payment.Status,
-			&due,
-			&paid,
-			&payment.CreatedAt,
-			&payment.UpdatedAt,
+			&p.ID, &p.VoyageID, &p.CreatedBy, &p.PaymentType, &desc, &p.Amount, &p.Currency,
+			&recEmail, &recWallet,
+			&csSession, &csPayment, &csAgreement, &csCheckout, &csTxHash,
+			&p.Status, &paidAt, &p.CreatedAt, &p.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
-		payment.DueDate = timePtr(due)
-		payment.PaidAt = timePtr(paid)
-		payments = append(payments, payment)
+		p.Description = stringPtr(desc)
+		p.RecipientEmail = stringPtr(recEmail)
+		p.RecipientWallet = stringPtr(recWallet)
+		p.CoinsubSessionID = stringPtr(csSession)
+		p.CoinsubPaymentID = stringPtr(csPayment)
+		p.CoinsubAgreementID = stringPtr(csAgreement)
+		p.CoinsubCheckoutURL = stringPtr(csCheckout)
+		p.CoinsubTxHash = stringPtr(csTxHash)
+		if paidAt.Valid {
+			p.PaidAt = &paidAt.Time
+		}
+		payments = append(payments, p)
 	}
 	return payments, rows.Err()
 }
 
-// Update modifies payment fields.
-func (repo *PaymentRepository) Update(ctx context.Context, p *Payment) error {
+func (repo *PaymentRepository) UpdateCoinsubSession(ctx context.Context, id uuid.UUID, sessionID, checkoutURL string) error {
 	const query = `
-		UPDATE shipman.payments
-		SET
-			voyage_id = $2,
-			category = $3,
-			due_date = $4,
-			paid_at = $5,
-			amount = $6,
-			currency = $7,
-			status = $8,
-			payment_method = $9,
-			reference = $10,
-			notes = $11,
-			updated_at = NOW()
+		UPDATE shipman.voyage_payments
+		SET coinsub_session_id = $2, coinsub_checkout_url = $3, status = 'pending'
 		WHERE id = $1
-		RETURNING updated_at
 	`
-
-	return Pool.QueryRowContext(
-		ctx,
-		query,
-		p.ID,
-		nullableUUID(p.VoyageID),
-		p.Category,
-		nullableTime(p.DueDate),
-		nullableTime(p.PaidAt),
-		p.Amount,
-		p.Currency,
-		p.Status,
-		nullableString(p.PaymentMethod),
-		nullableString(p.Reference),
-		nullableString(p.Notes),
-	).Scan(&p.UpdatedAt)
+	_, err := Pool.ExecContext(ctx, query, id, sessionID, checkoutURL)
+	return err
 }
 
-// Delete removes a payment.
-func (repo *PaymentRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	const query = `DELETE FROM shipman.payments WHERE id = $1`
+func (repo *PaymentRepository) MarkCompleted(ctx context.Context, sessionID, paymentID, txHash string) error {
+	const query = `
+		UPDATE shipman.voyage_payments
+		SET status = 'completed', coinsub_payment_id = $2, coinsub_tx_hash = $3, paid_at = NOW()
+		WHERE coinsub_session_id = $1
+	`
+	_, err := Pool.ExecContext(ctx, query, sessionID, paymentID, txHash)
+	return err
+}
+
+// MarkCompletedByID marks a payment as completed using our internal payment UUID.
+// Used by the webhook when the metadata contains the payment_id.
+func (repo *PaymentRepository) MarkCompletedByID(ctx context.Context, id uuid.UUID, coinsubPaymentID, txHash, payerEmail string) error {
+	const query = `
+		UPDATE shipman.voyage_payments
+		SET status = 'completed', coinsub_payment_id = $2, coinsub_tx_hash = $3,
+		    paid_at = NOW(), recipient_email = COALESCE(NULLIF($4,''), recipient_email)
+		WHERE id = $1
+	`
+	_, err := Pool.ExecContext(ctx, query, id, coinsubPaymentID, txHash, payerEmail)
+	return err
+}
+
+func (repo *PaymentRepository) MarkFailed(ctx context.Context, sessionID string) error {
+	const query = `
+		UPDATE shipman.voyage_payments
+		SET status = 'failed'
+		WHERE coinsub_session_id = $1
+	`
+	_, err := Pool.ExecContext(ctx, query, sessionID)
+	return err
+}
+
+// MarkFailedByID marks a payment as failed using our internal payment UUID.
+func (repo *PaymentRepository) MarkFailedByID(ctx context.Context, id uuid.UUID) error {
+	const query = `UPDATE shipman.voyage_payments SET status = 'failed' WHERE id = $1`
 	_, err := Pool.ExecContext(ctx, query, id)
 	return err
+}
+
+func (repo *PaymentRepository) UpdateTransfer(ctx context.Context, id uuid.UUID, txHash string) error {
+	const query = `
+		UPDATE shipman.voyage_payments
+		SET coinsub_tx_hash = $2, status = 'completed', paid_at = NOW()
+		WHERE id = $1
+	`
+	_, err := Pool.ExecContext(ctx, query, id, txHash)
+	return err
+}
+
+// MarkPaid manually marks a payment as completed (for testing / off-platform payments).
+func (repo *PaymentRepository) MarkPaid(ctx context.Context, id uuid.UUID) error {
+	const query = `
+		UPDATE shipman.voyage_payments
+		SET status = 'completed', paid_at = COALESCE(paid_at, NOW())
+		WHERE id = $1 AND status != 'completed'
+	`
+	_, err := Pool.ExecContext(ctx, query, id)
+	return err
+}
+
+func (repo *PaymentRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	_, err := Pool.ExecContext(ctx, `DELETE FROM shipman.voyage_payments WHERE id = $1 AND status = 'draft'`, id)
+	return err
+}
+
+func (repo *PaymentRepository) FindBySessionID(ctx context.Context, sessionID string) (VoyagePayment, error) {
+	const query = `
+		SELECT id, voyage_id, created_by, payment_type, description, amount, currency,
+		       recipient_email, recipient_wallet,
+		       coinsub_session_id, coinsub_payment_id, coinsub_agreement_id,
+		       coinsub_checkout_url, coinsub_tx_hash,
+		       status, paid_at, created_at, updated_at
+		FROM shipman.voyage_payments
+		WHERE coinsub_session_id = $1
+	`
+	var p VoyagePayment
+	var desc, recEmail, recWallet sql.NullString
+	var csSession, csPayment, csAgreement, csCheckout, csTxHash sql.NullString
+	var paidAt sql.NullTime
+
+	err := Pool.QueryRowContext(ctx, query, sessionID).Scan(
+		&p.ID, &p.VoyageID, &p.CreatedBy, &p.PaymentType, &desc, &p.Amount, &p.Currency,
+		&recEmail, &recWallet,
+		&csSession, &csPayment, &csAgreement, &csCheckout, &csTxHash,
+		&p.Status, &paidAt, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		return p, err
+	}
+	p.Description = stringPtr(desc)
+	p.RecipientEmail = stringPtr(recEmail)
+	p.RecipientWallet = stringPtr(recWallet)
+	p.CoinsubSessionID = stringPtr(csSession)
+	p.CoinsubPaymentID = stringPtr(csPayment)
+	p.CoinsubAgreementID = stringPtr(csAgreement)
+	p.CoinsubCheckoutURL = stringPtr(csCheckout)
+	p.CoinsubTxHash = stringPtr(csTxHash)
+	if paidAt.Valid {
+		p.PaidAt = &paidAt.Time
+	}
+	return p, nil
 }

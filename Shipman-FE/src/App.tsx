@@ -9,6 +9,8 @@ import DocumentViewer from './pages/DocumentViewer';
 import Deals from './pages/Deals';
 import DealViewer from './pages/DealViewer';
 import Marketplace from './pages/Marketplace';
+import Voyages from './pages/Voyages';
+import VoyageViewer from './pages/VoyageViewer';
 import Join from './pages/Join';
 import './App.css';
 
@@ -65,6 +67,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <Marketplace />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/voyages"
+            element={
+              <ProtectedRoute>
+                <Voyages />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/voyages/:id"
+            element={
+              <ProtectedRoute>
+                <VoyageViewer />
               </ProtectedRoute>
             }
           />

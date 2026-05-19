@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ type ClauseNegotiation struct {
 	ClauseTitle     string    `json:"clause_title"`
 	OriginalContent string    `json:"original_content"`
 	Status          string    `json:"status"`
+	SortOrder       int       `json:"sort_order"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -46,34 +48,39 @@ func NewNegotiationRepository() *NegotiationRepository {
 
 func (repo *NegotiationRepository) CreateNegotiation(ctx context.Context, n *ClauseNegotiation) error {
 	const query = `
-		INSERT INTO shipman.clause_negotiations (deal_id, clause_type, clause_title, original_content, status)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO shipman.clause_negotiations (deal_id, clause_type, clause_title, original_content, status, sort_order)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (deal_id, clause_title) DO NOTHING
 		RETURNING id, created_at, updated_at
 	`
-	return Pool.QueryRowContext(ctx, query,
-		n.DealID, n.ClauseType, n.ClauseTitle, n.OriginalContent, n.Status,
+	err := Pool.QueryRowContext(ctx, query,
+		n.DealID, n.ClauseType, n.ClauseTitle, n.OriginalContent, n.Status, n.SortOrder,
 	).Scan(&n.ID, &n.CreatedAt, &n.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil // duplicate clause — silently skip
+	}
+	return err
 }
 
 func (repo *NegotiationRepository) GetNegotiation(ctx context.Context, id uuid.UUID) (ClauseNegotiation, error) {
 	const query = `
-		SELECT id, deal_id, clause_type, clause_title, original_content, status, created_at, updated_at
+		SELECT id, deal_id, clause_type, clause_title, original_content, status, sort_order, created_at, updated_at
 		FROM shipman.clause_negotiations
 		WHERE id = $1
 	`
 	var n ClauseNegotiation
 	err := Pool.QueryRowContext(ctx, query, id).Scan(
-		&n.ID, &n.DealID, &n.ClauseType, &n.ClauseTitle, &n.OriginalContent, &n.Status, &n.CreatedAt, &n.UpdatedAt,
+		&n.ID, &n.DealID, &n.ClauseType, &n.ClauseTitle, &n.OriginalContent, &n.Status, &n.SortOrder, &n.CreatedAt, &n.UpdatedAt,
 	)
 	return n, err
 }
 
 func (repo *NegotiationRepository) ListByDeal(ctx context.Context, dealID uuid.UUID) ([]ClauseNegotiation, error) {
 	const query = `
-		SELECT id, deal_id, clause_type, clause_title, original_content, status, created_at, updated_at
+		SELECT id, deal_id, clause_type, clause_title, original_content, status, sort_order, created_at, updated_at
 		FROM shipman.clause_negotiations
 		WHERE deal_id = $1
-		ORDER BY created_at ASC
+		ORDER BY sort_order ASC, created_at ASC
 	`
 
 	rows, err := Pool.QueryContext(ctx, query, dealID)
@@ -85,7 +92,7 @@ func (repo *NegotiationRepository) ListByDeal(ctx context.Context, dealID uuid.U
 	var negotiations []ClauseNegotiation
 	for rows.Next() {
 		var n ClauseNegotiation
-		if err := rows.Scan(&n.ID, &n.DealID, &n.ClauseType, &n.ClauseTitle, &n.OriginalContent, &n.Status, &n.CreatedAt, &n.UpdatedAt); err != nil {
+		if err := rows.Scan(&n.ID, &n.DealID, &n.ClauseType, &n.ClauseTitle, &n.OriginalContent, &n.Status, &n.SortOrder, &n.CreatedAt, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
 		negotiations = append(negotiations, n)
@@ -130,7 +137,8 @@ func (repo *NegotiationRepository) GetProposals(ctx context.Context, negotiation
 	var proposals []ClauseProposalWithUser
 	for rows.Next() {
 		var p ClauseProposalWithUser
-		var comment, uID, uEmail, uFullName, uRole string
+		var comment sql.NullString
+		var uID, uEmail, uFullName, uRole string
 
 		if err := rows.Scan(
 			&p.ID, &p.NegotiationID, &p.ProposedBy, &p.ProposedContent, &comment, &p.Status, &p.CreatedAt,
@@ -139,8 +147,8 @@ func (repo *NegotiationRepository) GetProposals(ctx context.Context, negotiation
 			return nil, err
 		}
 
-		if comment != "" {
-			p.Comment = &comment
+		if comment.Valid {
+			p.Comment = &comment.String
 		}
 
 		uid, _ := uuid.Parse(uID)
@@ -178,4 +186,36 @@ func (repo *NegotiationRepository) GetNegotiationWithProposals(ctx context.Conte
 		ClauseNegotiation: n,
 		Proposals:         proposals,
 	}, nil
+}
+
+// SupersedeOtherProposals marks all other pending proposals on a negotiation as superseded
+// when one proposal is accepted.
+func (repo *NegotiationRepository) SupersedeOtherProposals(ctx context.Context, negotiationID, acceptedProposalID uuid.UUID) error {
+	const query = `
+		UPDATE shipman.clause_proposals
+		SET status = 'superseded'
+		WHERE negotiation_id = $1 AND id != $2 AND status = 'pending'
+	`
+	_, err := Pool.ExecContext(ctx, query, negotiationID, acceptedProposalID)
+	return err
+}
+
+// AllNegotiationsAccepted returns true if every negotiation on a deal has status 'accepted'.
+func (repo *NegotiationRepository) AllNegotiationsAccepted(ctx context.Context, dealID uuid.UUID) (bool, error) {
+	const query = `
+		SELECT COUNT(*) = 0
+		FROM shipman.clause_negotiations
+		WHERE deal_id = $1 AND status != 'accepted'
+	`
+	var allDone bool
+	err := Pool.QueryRowContext(ctx, query, dealID).Scan(&allDone)
+	return allDone, err
+}
+
+// GetNegotiationDealID returns the deal_id for a given negotiation.
+func (repo *NegotiationRepository) GetNegotiationDealID(ctx context.Context, negotiationID uuid.UUID) (uuid.UUID, error) {
+	const query = `SELECT deal_id FROM shipman.clause_negotiations WHERE id = $1`
+	var dealID uuid.UUID
+	err := Pool.QueryRowContext(ctx, query, negotiationID).Scan(&dealID)
+	return dealID, err
 }
