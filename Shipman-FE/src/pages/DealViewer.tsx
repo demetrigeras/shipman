@@ -571,9 +571,9 @@ export default function DealViewer() {
           <span className={`badge badge-${deal.status}`}>{deal.status}</span>
         </div>
         <div className="deal-room-actions">
-          {/* TEMP smoke-test embed code from test.vantack.com. Single-use;
-              re-mint with the prefill API and replace if it stops loading. */}
-          <CoinSubButton embedKey="3363ccdf-20da-4236-bb64-0a20e983f894" testMode />
+          {/* TEMP smoke-test embed code minted against demetri+testshipman@coinsub.io.
+              Single-use; re-mint with the prefill API and replace if it stops loading. */}
+          <CoinSubButton embedKey="4b5817ca-db79-47e8-8fef-7c1fcc0d3401" testMode />
           <button className="btn-primary btn-sm" onClick={() => setShowInvite(true)}>
             + Invite Party
           </button>
