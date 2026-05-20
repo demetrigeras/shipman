@@ -26,13 +26,12 @@ function timeAgo(dateStr: string): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// CoinSub / RocketRamp button. Opens the wallet in a new browser tab.
+// CoinSub / RocketRamp button. Opens the wallet in an iframe modal.
 //
-// We deliberately do NOT use an iframe: RocketRamp's /embed/{code} endpoint
-// enforces a domain allowlist via Sec-Fetch-Dest=iframe + Referer, which
-// can't be configured to permit http://localhost:* on the Vantack dashboard.
-// Top-level navigation (Sec-Fetch-Dest=document) bypasses that check by
-// design, since it's no longer an embed.
+// The /embed/{code} endpoint enforces a domain allowlist (Sec-Fetch-Dest=iframe
+// + Referer). It works fine from production origins, but blocks localhost.
+// If the iframe fails to load in your environment, there's an "Open in new
+// tab" escape hatch in the modal.
 //
 // Sandbox creds (test.vantack.com) → test.myrocketramp.com.
 // Production creds (app.vantack.com) → app.myrocketramp.com.
@@ -48,30 +47,74 @@ interface CoinSubButtonProps {
 }
 
 function CoinSubButton({ embedKey, label = 'Get Credits', testMode = true }: CoinSubButtonProps) {
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const base = testMode ? ROCKETRAMP_TEST_BASE : ROCKETRAMP_PROD_BASE;
+  const iframeSrc = embedKey ? `${base}/${embedKey}?t=${Date.now()}` : null;
 
-  const handleClick = () => {
-    if (!embedKey) {
-      alert(
-        'No embed code configured. Mint one by POSTing to ' +
-          (testMode ? 'test-api.vantack.com' : 'api.vantack.com') +
-          '/v1/merchants/embed/prefill, then pass it as the embedKey prop.',
-      );
-      return;
-    }
-    const url = `${base}/${embedKey}?t=${Date.now()}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+  const close = () => {
+    setOpen(false);
+    setLoaded(false);
   };
 
   return (
-    <button
-      type="button"
-      className="btn-coinsub"
-      onClick={handleClick}
-      title={embedKey ? 'Open RocketRamp wallet in a new tab' : 'No embed code configured'}
-    >
-      {label}
-    </button>
+    <>
+      <button
+        type="button"
+        className="btn-coinsub"
+        onClick={() => setOpen(true)}
+        title={embedKey ? 'Open RocketRamp wallet' : 'No embed code configured'}
+      >
+        {label}
+      </button>
+
+      {open && (
+        <div className="coinsub-modal-overlay" onClick={close}>
+          <div className="coinsub-modal" onClick={e => e.stopPropagation()}>
+            <button className="coinsub-modal-close" onClick={close} aria-label="Close">✕</button>
+
+            {iframeSrc ? (
+              <>
+                {!loaded && (
+                  <div className="coinsub-loader">
+                    <div className="coinsub-spinner" />
+                    <p>Loading Wallet…</p>
+                    <a
+                      href={iframeSrc}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="coinsub-fallback-link"
+                    >
+                      Wallet not loading? Open in new tab →
+                    </a>
+                  </div>
+                )}
+                <iframe
+                  title="RocketRamp Wallet"
+                  src={iframeSrc}
+                  className="coinsub-iframe"
+                  onLoad={() => setLoaded(true)}
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                  allow="clipboard-read *; publickey-credentials-create *; publickey-credentials-get *"
+                />
+              </>
+            ) : (
+              <div className="coinsub-no-key">
+                <h3>No embed code configured</h3>
+                <p>
+                  Generate one by POSTing to{' '}
+                  <code>
+                    {testMode ? 'test-api.vantack.com' : 'api.vantack.com'}
+                    /v1/merchants/embed/prefill
+                  </code>{' '}
+                  and pass the returned UUID as <code>embedKey</code>.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -571,9 +614,9 @@ export default function DealViewer() {
           <span className={`badge badge-${deal.status}`}>{deal.status}</span>
         </div>
         <div className="deal-room-actions">
-          {/* TEMP smoke-test embed code minted against demetri+testshipman@coinsub.io.
+          {/* TEMP smoke-test embed code; prefilled recipient = demetri+pstry@coinsub.io.
               Single-use; re-mint with the prefill API and replace if it stops loading. */}
-          <CoinSubButton embedKey="4b5817ca-db79-47e8-8fef-7c1fcc0d3401" testMode />
+          <CoinSubButton embedKey="e95af6b9-a6b2-437e-bf85-6d50696be98f" testMode />
           <button className="btn-primary btn-sm" onClick={() => setShowInvite(true)}>
             + Invite Party
           </button>
