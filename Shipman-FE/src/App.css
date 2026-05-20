@@ -1895,6 +1895,31 @@
   background: #0370d8;
 }
 
+/* Quick-pay row at the top of the voyage payments tab. */
+.quick-pay-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e6f0ff 100%);
+  border: 1px solid #c7dcff;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 1.25rem;
+}
+.quick-pay-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #0484fc;
+  margin-bottom: 2px;
+}
+.quick-pay-desc {
+  font-size: 0.9rem;
+  color: #1f2937;
+}
+
 /* Compact "Pay [name]" button sitting under a participant in the sidebar. */
 .btn-pay-sm {
   display: inline-flex;

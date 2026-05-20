@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { api } from '../api/client';
 import type { Voyage, ShipPosition, LaytimeEntry, LaytimeSummary, Document, ExtractedTerms, VoyagePayment, User } from '../api/client';
 import NavBar from '../components/NavBar';
+import PayButton from '../components/PayButton';
 
 // Fix leaflet default marker icons in Vite
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
@@ -891,6 +892,23 @@ export default function VoyageViewer() {
 
           return (
           <div className="voyage-tab-content">
+
+            {/* ━━ QUICK PAY (RocketRamp) ━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {voyage.counterparty_email && (
+              <div className="quick-pay-row">
+                <div>
+                  <div className="quick-pay-label">Quick Pay</div>
+                  <div className="quick-pay-desc">
+                    Send funds directly to <strong>{voyage.counterparty_name || voyage.counterparty_email}</strong> via RocketRamp — no invoice needed.
+                  </div>
+                </div>
+                <PayButton
+                  recipientEmail={voyage.counterparty_email}
+                  label={`Pay ${voyage.counterparty_name?.split(' ')[0] || 'Counterparty'}`}
+                  memo={`Voyage ${voyage.voyage_number || voyage.id.slice(0, 8)}`}
+                />
+              </div>
+            )}
 
             {/* ━━ TWO-COLUMN INVOICES ━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
             <div className="pay-invoices-grid">
