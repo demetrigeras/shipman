@@ -4,10 +4,6 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
-import Documents from './pages/Documents';
-import DocumentViewer from './pages/DocumentViewer';
-import Deals from './pages/Deals';
-import DealViewer from './pages/DealViewer';
 import Marketplace from './pages/Marketplace';
 import Voyages from './pages/Voyages';
 import VoyageViewer from './pages/VoyageViewer';
@@ -27,38 +23,6 @@ function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/documents"
-            element={
-              <ProtectedRoute>
-                <Documents />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/documents/:id"
-            element={
-              <ProtectedRoute>
-                <DocumentViewer />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/deals"
-            element={
-              <ProtectedRoute>
-                <Deals />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/deals/:id"
-            element={
-              <ProtectedRoute>
-                <DealViewer />
               </ProtectedRoute>
             }
           />

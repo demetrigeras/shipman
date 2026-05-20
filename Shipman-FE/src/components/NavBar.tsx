@@ -50,18 +50,6 @@ export default function NavBar({ backTo, backLabel }: NavBarProps) {
         <Link to="/dashboard" className="app-nav-logo">⚓ Shipman</Link>
         <div className="app-nav-links">
           <Link
-            to="/documents"
-            className={`nav-link${isActive('/documents') ? ' nav-link--active' : ''}`}
-          >
-            Documents
-          </Link>
-          <Link
-            to="/deals"
-            className={`nav-link${isActive('/deals') ? ' nav-link--active' : ''}`}
-          >
-            Negotiations
-          </Link>
-          <Link
             to="/voyages"
             className={`nav-link${isActive('/voyages') ? ' nav-link--active' : ''}`}
           >

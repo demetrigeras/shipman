@@ -23,18 +23,11 @@ export default function Dashboard() {
         </div>
 
         <div className="action-cards">
-          <div className="action-card" onClick={() => navigate('/documents')}>
-            <div className="card-icon">📄</div>
-            <h3>Charter Parties</h3>
-            <p>Upload charter party documents and use AI to extract and highlight key negotiation clauses.</p>
-            <button className="btn-primary">Open Documents →</button>
-          </div>
-
-          <div className="action-card" onClick={() => navigate('/deals')}>
-            <div className="card-icon">🤝</div>
-            <h3>Negotiations</h3>
-            <p>Negotiate charter terms side-by-side with shipowners, charterers, and brokers in a shared deal room.</p>
-            <button className="btn-primary">Open Negotiations →</button>
+          <div className="action-card" onClick={() => navigate('/voyages')}>
+            <div className="card-icon">⚓</div>
+            <h3>Fixed C/P</h3>
+            <p>Manage active fixtures: negotiate clauses, track laytime, monitor positions, and settle payments — all in one voyage room.</p>
+            <button className="btn-primary">Open Fixtures →</button>
           </div>
 
           <div className="action-card" onClick={() => navigate('/marketplace')}>

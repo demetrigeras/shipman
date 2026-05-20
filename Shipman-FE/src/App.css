@@ -2070,6 +2070,60 @@
   text-decoration: underline;
 }
 
+/* ── Voyage Negotiations empty placeholder ─────────────────────────────── */
+.negotiations-empty {
+  max-width: 560px;
+  margin: 3rem auto;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  padding: 2.5rem 2rem;
+}
+.negotiations-empty-icon {
+  font-size: 3rem;
+  margin-bottom: 0.75rem;
+}
+.negotiations-empty h3 {
+  font-size: 1.4rem;
+  margin: 0 0 0.75rem;
+}
+.negotiations-empty p {
+  color: #94a3b8;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  margin: 0.5rem 0;
+}
+.negotiations-empty .hint {
+  font-size: 0.85rem;
+}
+.link-inline {
+  background: none;
+  border: none;
+  color: #0484fc;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+}
+.link-inline:hover {
+  color: #0370d8;
+}
+.negotiations-cta {
+  margin-top: 1.5rem;
+}
+.negotiations-cta-badge {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(4, 132, 252, 0.12);
+  color: #0484fc;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .coinsub-modal-overlay {
   position: fixed;
   inset: 0;

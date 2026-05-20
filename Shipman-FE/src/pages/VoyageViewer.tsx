@@ -16,7 +16,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'charter' | 'tracking' | 'laytime' | 'payments';
+type Tab = 'negotiations' | 'charter' | 'tracking' | 'laytime' | 'payments';
 
 const ACTIVITIES = [
   'NOR Tendered',
@@ -38,7 +38,7 @@ function fmtNum(n?: number, decimals = 2) {
 export default function VoyageViewer() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('charter');
+  const [tab, setTab] = useState<Tab>('negotiations');
   const [paymentTab, setPaymentTab] = useState<'received' | 'paid' | 'all'>('all');
   const [nextPort, setNextPort] = useState('');
   const [voyage, setVoyage] = useState<Voyage | null>(null);
@@ -464,12 +464,13 @@ export default function VoyageViewer() {
 
         {/* Tabs */}
         <div className="voyage-tabs">
-          {(['charter', 'tracking', 'laytime', 'payments'] as Tab[]).map(t => (
+          {(['negotiations', 'charter', 'tracking', 'laytime', 'payments'] as Tab[]).map(t => (
             <button
               key={t}
               className={`voyage-tab-btn${tab === t ? ' voyage-tab-btn--active' : ''}`}
               onClick={() => setTab(t)}
             >
+              {t === 'negotiations' && '📋 Negotiations'}
               {t === 'charter' && <>📄 Charter Party {voyage.document_id && <span className="tab-dot-green">●</span>}</>}
               {t === 'tracking' && '🗺 Tracking'}
               {t === 'laytime' && '⏱ Laytime'}
@@ -477,6 +478,27 @@ export default function VoyageViewer() {
             </button>
           ))}
         </div>
+
+        {/* ── Negotiations Tab ─────────────────────────────── */}
+        {tab === 'negotiations' && (
+          <div className="voyage-tab-content">
+            <div className="negotiations-empty">
+              <div className="negotiations-empty-icon">📋</div>
+              <h3>Clause Negotiations</h3>
+              <p>
+                Negotiate charter party clauses with your counterparty — proposals, counter-offers,
+                and acceptance — all in one thread per clause.
+              </p>
+              <p className="hint">
+                Upload your C/P in the <button className="link-inline" onClick={() => setTab('charter')}>Charter Party</button> tab and
+                we'll auto-extract clauses you can negotiate here.
+              </p>
+              <div className="negotiations-cta">
+                <span className="negotiations-cta-badge">Coming soon</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Charter Party Tab ────────────────────────────── */}
         {tab === 'charter' && (
@@ -527,18 +549,6 @@ export default function VoyageViewer() {
                 <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Scanned terms found</span>
                 <button className="btn-primary btn-sm" onClick={handleApplyTerms}>Apply to Contract Details</button>
               </div>
-            )}
-
-            {/* PDF preview (collapsible) */}
-            {voyage.document_id && (
-              <details className="cp-pdf-details">
-                <summary>View uploaded document</summary>
-                <iframe
-                  src={`/api/v1/documents/${voyage.document_id}/view?token=${encodeURIComponent(localStorage.getItem('token') ?? '')}`}
-                  title="Charter Party"
-                  className="cp-iframe-compact"
-                />
-              </details>
             )}
 
             {/* ── Editable contract detail lines ── */}
