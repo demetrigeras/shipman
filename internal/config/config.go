@@ -19,6 +19,10 @@ type Config struct {
 	CoinsubKey        string
 	CoinsubMerchantID string
 	CoinsubSecret     string
+	// RocketRamp / Vantack — peer-to-peer crypto payments via embed wallet.
+	RocketRampMerchantID string
+	RocketRampAPIKey     string
+	RocketRampTestMode   bool
 	AppURL        string
 	Email         EmailConfig
 	MarineAPIKey  string
@@ -66,6 +70,12 @@ type yamlConfig struct {
 		WebhookSecret string `yaml:"webhook_secret"`
 	} `yaml:"coinsub"`
 
+	RocketRamp struct {
+		MerchantID string `yaml:"merchant_id"`
+		APIKey     string `yaml:"api_key"`
+		TestMode   *bool  `yaml:"test_mode"` // pointer so we can distinguish unset
+	} `yaml:"rocketramp"`
+
 	Email struct {
 		SendGridAPIKey string `yaml:"sendgrid_api_key"`
 		TemplateID     string `yaml:"template_id"`
@@ -108,6 +118,15 @@ func Load() (*Config, error) {
 	coinsubMerchantID := envOr("COINSUB_MERCHANT_ID", yc.Coinsub.MerchantID, "")
 	coinsubSecret := envOr("COINSUB_WEBHOOK_SECRET", yc.Coinsub.WebhookSecret, "")
 
+	rocketRampMerchant := envOr("ROCKETRAMP_MERCHANT_ID", yc.RocketRamp.MerchantID, "")
+	rocketRampKey := envOr("ROCKETRAMP_API_KEY", yc.RocketRamp.APIKey, "")
+	rocketRampTestMode := true
+	if v := os.Getenv("ROCKETRAMP_TEST_MODE"); v != "" {
+		rocketRampTestMode = v != "false" && v != "0"
+	} else if yc.RocketRamp.TestMode != nil {
+		rocketRampTestMode = *yc.RocketRamp.TestMode
+	}
+
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		yamlPort := ""
@@ -143,6 +162,9 @@ func Load() (*Config, error) {
 		CoinsubKey:        coinsubKey,
 		CoinsubMerchantID: coinsubMerchantID,
 		CoinsubSecret:     coinsubSecret,
+		RocketRampMerchantID: rocketRampMerchant,
+		RocketRampAPIKey:     rocketRampKey,
+		RocketRampTestMode:   rocketRampTestMode,
 		AppURL:        appURL,
 		MarineAPIKey:  marineAPIKey,
 		Email: EmailConfig{

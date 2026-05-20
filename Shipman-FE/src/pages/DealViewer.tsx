@@ -26,46 +26,64 @@ function timeAgo(dateStr: string): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// CoinSub / RocketRamp button. Opens the wallet in an iframe modal.
+// CoinSub / RocketRamp pay button. On click:
+//   1. Backend mints a fresh single-use embed_code prefilled with `recipient`
+//   2. We open an iframe modal pointing at <embed_base_url>/<embed_code>
+//   3. User authenticates inside their wallet, picks amount, sends
 //
-// The /embed/{code} endpoint enforces a domain allowlist (Sec-Fetch-Dest=iframe
-// + Referer). It works fine from production origins, but blocks localhost.
-// If the iframe fails to load in your environment, there's an "Open in new
-// tab" escape hatch in the modal.
-//
-// Sandbox creds (test.vantack.com) → test.myrocketramp.com.
-// Production creds (app.vantack.com) → app.myrocketramp.com.
+// The /embed/{code} endpoint enforces a domain allowlist (works fine on
+// shipman.demetrijgeras.workers.dev, blocks raw localhost). The modal has an
+// "Open in new tab" escape hatch in case the iframe ever fails.
 // ────────────────────────────────────────────────────────────────────────────
 
-const ROCKETRAMP_TEST_BASE = 'https://test.myrocketramp.com/embed';
-const ROCKETRAMP_PROD_BASE = 'https://app.myrocketramp.com/embed';
-
-interface CoinSubButtonProps {
-  embedKey?: string;
+interface PayButtonProps {
+  recipientEmail: string;
   label?: string;
-  testMode?: boolean;
+  memo?: string;
+  className?: string;
 }
 
-function CoinSubButton({ embedKey, label = 'Get Credits', testMode = true }: CoinSubButtonProps) {
+function PayButton({ recipientEmail, label, memo, className }: PayButtonProps) {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const base = testMode ? ROCKETRAMP_TEST_BASE : ROCKETRAMP_PROD_BASE;
-  const iframeSrc = embedKey ? `${base}/${embedKey}?t=${Date.now()}` : null;
+  const [iframeSrc, setIframeSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [minting, setMinting] = useState(false);
 
   const close = () => {
     setOpen(false);
     setLoaded(false);
+    setIframeSrc(null);
+    setError(null);
+  };
+
+  const handleClick = async () => {
+    setOpen(true);
+    setMinting(true);
+    setError(null);
+    try {
+      const result = await api.payments.createEmbedCode(recipientEmail, memo);
+      setIframeSrc(`${result.embed_base_url}/${result.embed_code}?t=${Date.now()}`);
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : 'Failed to start RocketRamp session',
+      );
+    } finally {
+      setMinting(false);
+    }
   };
 
   return (
     <>
       <button
         type="button"
-        className="btn-coinsub"
-        onClick={() => setOpen(true)}
-        title={embedKey ? 'Open RocketRamp wallet' : 'No embed code configured'}
+        className={className ?? 'btn-coinsub'}
+        onClick={handleClick}
+        title={`Send funds to ${recipientEmail} via RocketRamp`}
       >
-        {label}
+        {label ?? `Pay ${recipientEmail}`}
       </button>
 
       {open && (
@@ -73,7 +91,16 @@ function CoinSubButton({ embedKey, label = 'Get Credits', testMode = true }: Coi
           <div className="coinsub-modal" onClick={e => e.stopPropagation()}>
             <button className="coinsub-modal-close" onClick={close} aria-label="Close">✕</button>
 
-            {iframeSrc ? (
+            {error ? (
+              <div className="coinsub-no-key">
+                <h3>Couldn't start payment</h3>
+                <p>{error}</p>
+                <p style={{ fontSize: '0.8rem', color: '#6b7280' }}>
+                  Make sure <code>ROCKETRAMP_MERCHANT_ID</code> and{' '}
+                  <code>ROCKETRAMP_API_KEY</code> are set on the backend.
+                </p>
+              </div>
+            ) : iframeSrc ? (
               <>
                 {!loaded && (
                   <div className="coinsub-loader">
@@ -99,16 +126,9 @@ function CoinSubButton({ embedKey, label = 'Get Credits', testMode = true }: Coi
                 />
               </>
             ) : (
-              <div className="coinsub-no-key">
-                <h3>No embed code configured</h3>
-                <p>
-                  Generate one by POSTing to{' '}
-                  <code>
-                    {testMode ? 'test-api.vantack.com' : 'api.vantack.com'}
-                    /v1/merchants/embed/prefill
-                  </code>{' '}
-                  and pass the returned UUID as <code>embedKey</code>.
-                </p>
+              <div className="coinsub-loader">
+                <div className="coinsub-spinner" />
+                <p>{minting ? 'Preparing payment…' : 'Loading…'}</p>
               </div>
             )}
           </div>
@@ -614,9 +634,6 @@ export default function DealViewer() {
           <span className={`badge badge-${deal.status}`}>{deal.status}</span>
         </div>
         <div className="deal-room-actions">
-          {/* TEMP smoke-test embed code; prefilled recipient = demetri+pstry@coinsub.io.
-              Single-use; re-mint with the prefill API and replace if it stops loading. */}
-          <CoinSubButton embedKey="e95af6b9-a6b2-437e-bf85-6d50696be98f" testMode />
           <button className="btn-primary btn-sm" onClick={() => setShowInvite(true)}>
             + Invite Party
           </button>
@@ -795,13 +812,27 @@ export default function DealViewer() {
               <p className="empty-text">Just you so far</p>
             ) : (
               <ul className="participants-list">
-                {participants.map(p => (
-                  <li key={p.id}>
-                    <span className={`role-dot role-${p.role}`} />
-                    <span>{p.user?.full_name || 'Pending'}</span>
-                    <span className="participant-role">{p.role}</span>
-                  </li>
-                ))}
+                {participants.map(p => {
+                  const isMe = p.user_id === user?.id;
+                  const counterpartyEmail = p.user?.email;
+                  return (
+                    <li key={p.id}>
+                      <div className="participant-row">
+                        <span className={`role-dot role-${p.role}`} />
+                        <span className="participant-name">{p.user?.full_name || 'Pending'}</span>
+                        <span className="participant-role">{p.role}</span>
+                      </div>
+                      {!isMe && counterpartyEmail && (
+                        <PayButton
+                          recipientEmail={counterpartyEmail}
+                          label={`Pay ${p.user?.full_name?.split(' ')[0] ?? p.role}`}
+                          memo={`Shipman deal ${deal.title}`}
+                          className="btn-pay-sm"
+                        />
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

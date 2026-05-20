@@ -598,6 +598,22 @@ export const api = {
         { method: 'POST', body: JSON.stringify({ webhook_url: webhookUrl }) },
       ),
   },
+
+  payments: {
+    // Mint a fresh single-use RocketRamp embed code for the given recipient.
+    // The wallet iframe should load `<embed_base_url>/<embed_code>`.
+    createEmbedCode: (recipientEmail: string, memo?: string) =>
+      request<{ embed_code: string; embed_base_url: string; test_mode: boolean }>(
+        '/payments/embed-code',
+        {
+          method: 'POST',
+          body: JSON.stringify({ recipient_email: recipientEmail, memo: memo ?? '' }),
+        },
+      ),
+
+    embedConfig: () =>
+      request<{ enabled: boolean; test_mode: boolean; embed_base_url: string }>('/payments/embed-config'),
+  },
 };
 
 export { ApiError };

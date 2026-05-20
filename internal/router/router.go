@@ -11,8 +11,10 @@ import (
 	"shipman/internal/router/groups/deals"
 	"shipman/internal/router/groups/documents"
 	"shipman/internal/router/groups/marketplace"
+	pmt "shipman/internal/router/groups/payments"
 	"shipman/internal/router/groups/users"
 	"shipman/internal/router/groups/voyages"
+	"shipman/internal/rocketramp"
 	"shipman/internal/storage"
 
 	"github.com/gin-gonic/gin"
@@ -29,10 +31,18 @@ type Router struct {
 	emailSvc     *email.Service
 	appURL       string
 	marineAPIKey string
-	coinsubClient *coinsub.Client
+	coinsubClient    *coinsub.Client
+	rocketRampClient *rocketramp.Client
 }
 
-func Setup(jwtSecret string, store storage.Storage, aiProvider, aiAPIKey, aiModel, aiBaseURL string, emailCfg email.Config, appURL, marineAPIKey string, coinsubKey, coinsubMerchantID, coinsubSecret string) *gin.Engine {
+// RocketRampConfig bundles credentials passed in from main.
+type RocketRampConfig struct {
+	MerchantID string
+	APIKey     string
+	TestMode   bool
+}
+
+func Setup(jwtSecret string, store storage.Storage, aiProvider, aiAPIKey, aiModel, aiBaseURL string, emailCfg email.Config, appURL, marineAPIKey string, coinsubKey, coinsubMerchantID, coinsubSecret string, rr RocketRampConfig) *gin.Engine {
 	r := &Router{
 		engine:        gin.New(),
 		jwtManager:    auth.NewJWTManager(jwtSecret, 24*time.Hour),
@@ -44,7 +54,8 @@ func Setup(jwtSecret string, store storage.Storage, aiProvider, aiAPIKey, aiMode
 		emailSvc:      email.NewService(emailCfg),
 		appURL:        appURL,
 		marineAPIKey:  marineAPIKey,
-		coinsubClient: coinsub.NewClient(coinsubKey, coinsubMerchantID, coinsubSecret),
+		coinsubClient:    coinsub.NewClient(coinsubKey, coinsubMerchantID, coinsubSecret),
+		rocketRampClient: rocketramp.NewClient(rr.MerchantID, rr.APIKey, rr.TestMode),
 	}
 
 	r.engine.Use(gin.Logger())
@@ -127,6 +138,11 @@ func (r *Router) registerAPIRoutes() {
 	adminGroup := v1.Group("/admin")
 	adminGroup.Use(r.authMiddleware())
 	paymentHandler.AddAdminRoutes(adminGroup)
+
+	rrHandler := pmt.NewHandler(r.rocketRampClient)
+	paymentsGroup := v1.Group("/payments")
+	paymentsGroup.Use(r.authMiddleware())
+	rrHandler.AddRoutes(paymentsGroup)
 }
 
 func corsMiddleware() gin.HandlerFunc {

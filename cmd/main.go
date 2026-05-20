@@ -42,7 +42,17 @@ func main() {
 		FromName:       cfg.Email.FromName,
 	}
 
-	r := router.Setup(cfg.JWTSecret, store, cfg.AIProvider, cfg.OpenAIAPIKey, cfg.AIModel, cfg.AIBaseURL, emailCfg, cfg.AppURL, cfg.MarineAPIKey, cfg.CoinsubKey, cfg.CoinsubMerchantID, cfg.CoinsubSecret)
+	r := router.Setup(
+		cfg.JWTSecret, store,
+		cfg.AIProvider, cfg.OpenAIAPIKey, cfg.AIModel, cfg.AIBaseURL,
+		emailCfg, cfg.AppURL, cfg.MarineAPIKey,
+		cfg.CoinsubKey, cfg.CoinsubMerchantID, cfg.CoinsubSecret,
+		router.RocketRampConfig{
+			MerchantID: cfg.RocketRampMerchantID,
+			APIKey:     cfg.RocketRampAPIKey,
+			TestMode:   cfg.RocketRampTestMode,
+		},
+	)
 
 	log.Printf("Starting server on %s", cfg.HTTPAddress)
 	if err := r.Run(cfg.HTTPAddress); err != nil {

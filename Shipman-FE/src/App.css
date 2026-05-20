@@ -1895,6 +1895,35 @@
   background: #0370d8;
 }
 
+/* Compact "Pay [name]" button sitting under a participant in the sidebar. */
+.btn-pay-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #0484fc;
+  color: #fff;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: background 0.15s ease;
+}
+.btn-pay-sm:hover {
+  background: #0370d8;
+}
+
+.participant-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.participant-name {
+  flex: 1;
+}
+
 .coinsub-modal-overlay {
   position: fixed;
   inset: 0;
