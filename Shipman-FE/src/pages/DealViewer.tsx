@@ -747,7 +747,7 @@ export default function DealViewer() {
                       </button>
                     </div>
                     <p style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.75rem' }}>
-                      To send invites by email automatically, configure SMTP in config.local.yaml.
+                      To send invites by email automatically, set <code>SENDGRID_API_KEY</code> and <code>SENDGRID_TEMPLATE_ID</code> on the backend.
                     </p>
                   </>
                 )}

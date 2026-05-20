@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { api } from '../api/client';
 import type { Voyage, ShipPosition, LaytimeEntry, LaytimeSummary, Document, ExtractedTerms, VoyagePayment, User } from '../api/client';
 import NavBar from '../components/NavBar';
-import PayButton from '../components/PayButton';
+import EmbedWallet from '../components/EmbedWallet';
 
 // Fix leaflet default marker icons in Vite
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
@@ -903,20 +903,29 @@ export default function VoyageViewer() {
           return (
           <div className="voyage-tab-content">
 
-            {/* ━━ QUICK PAY (RocketRamp) ━━━━━━━━━━━━━━━━━━━━━━━ */}
-            {voyage.counterparty_email && (
-              <div className="quick-pay-row">
-                <div>
-                  <div className="quick-pay-label">Quick Pay</div>
-                  <div className="quick-pay-desc">
-                    Send funds directly to <strong>{voyage.counterparty_name || voyage.counterparty_email}</strong> via RocketRamp — no invoice needed.
+            {/* ━━ EMBEDDED WALLET (RocketRamp) ━━━━━━━━━━━━━━━━━━ */}
+            {voyage.counterparty_email ? (
+              <div className="pay-wallet-card">
+                <div className="pay-wallet-header">
+                  <div>
+                    <div className="pay-wallet-label">Send Funds</div>
+                    <div className="pay-wallet-desc">
+                      Wallet prefilled for <strong>{voyage.counterparty_name || voyage.counterparty_email}</strong>. Sign in to your RocketRamp wallet below to send.
+                    </div>
                   </div>
                 </div>
-                <PayButton
+                <EmbedWallet
                   recipientEmail={voyage.counterparty_email}
-                  label={`Pay ${voyage.counterparty_name?.split(' ')[0] || 'Counterparty'}`}
                   memo={`Voyage ${voyage.voyage_number || voyage.id.slice(0, 8)}`}
+                  height={760}
                 />
+              </div>
+            ) : (
+              <div className="pay-wallet-card pay-wallet-card--empty">
+                <div className="pay-wallet-label">Send Funds</div>
+                <p className="pay-wallet-desc">
+                  Add a counterparty to this voyage to enable the embedded wallet for direct payments.
+                </p>
               </div>
             )}
 
@@ -1221,7 +1230,7 @@ export default function VoyageViewer() {
                       </button>
                     </div>
                     <p style={{ fontSize: '0.72rem', color: 'var(--color-text-secondary)', marginTop: '0.6rem' }}>
-                      Configure SMTP in config.local.yaml to send invites by email automatically.
+                      Set <code>SENDGRID_API_KEY</code> and <code>SENDGRID_TEMPLATE_ID</code> on the backend to send invites by email automatically.
                     </p>
                   </>
                 )}

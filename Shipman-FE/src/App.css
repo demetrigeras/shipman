@@ -2124,6 +2124,94 @@
   text-transform: uppercase;
 }
 
+/* ── Embedded RocketRamp wallet card (Voyage Payments tab) ──────────────── */
+.pay-wallet-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 18px 20px 20px;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+}
+.pay-wallet-card--empty {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-style: dashed;
+}
+.pay-wallet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.pay-wallet-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #0484fc;
+  margin-bottom: 4px;
+}
+.pay-wallet-desc {
+  font-size: 0.92rem;
+  color: #334155;
+  line-height: 1.45;
+  margin: 0;
+}
+.embed-wallet {
+  position: relative;
+  background: #f8fafc;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.embed-wallet-iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: #fff;
+  border-radius: 10px;
+}
+.embed-wallet-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #475569;
+  background: #f8fafc;
+  z-index: 1;
+}
+.embed-wallet-loader p {
+  margin: 0;
+  font-size: 0.88rem;
+}
+.embed-wallet-error {
+  padding: 32px 24px;
+  text-align: center;
+  color: #475569;
+}
+.embed-wallet-error h4 {
+  margin: 0 0 10px;
+  color: #b91c1c;
+  font-size: 1.05rem;
+}
+.embed-wallet-error p {
+  margin: 6px 0;
+  font-size: 0.9rem;
+}
+.embed-wallet-error-hint {
+  font-size: 0.78rem !important;
+  color: #6b7280;
+}
+.embed-wallet-error code {
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.78em;
+}
+
 .coinsub-modal-overlay {
   position: fixed;
   inset: 0;
