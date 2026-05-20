@@ -249,6 +249,9 @@ export interface Deal {
   created_by: string;
   created_at: string;
   updated_at: string;
+  shipowner_user_id?: string;
+  charterer_user_id?: string;
+  broker_user_id?: string;
 }
 
 export interface DealParticipant {
@@ -327,8 +330,18 @@ export interface DealCargoDetails {
 export interface DealWithParticipants {
   deal: Deal;
   participants: DealParticipant[];
+  pending_invites: DealInviteSummary[];
   vessel_details?: DealVesselDetails | null;
   cargo_details?: DealCargoDetails | null;
+}
+
+export interface DealInviteSummary {
+  id: string;
+  deal_id: string;
+  role: 'shipowner' | 'charterer' | 'broker';
+  invited_email: string;
+  created_at: string;
+  expires_at: string;
 }
 
 export interface NegotiationWithProposals extends ClauseNegotiation {
@@ -438,6 +451,11 @@ export const api = {
       request<{ invite_token: string; invite_link: string; expires_at: string; role: string; email_sent: boolean }>(`/deals/${id}/invite`, {
         method: 'POST',
         body: JSON.stringify({ email, role }),
+      }),
+
+    cancelInvite: (dealId: string, inviteId: string) =>
+      request<{ status: string }>(`/deals/${dealId}/invites/${inviteId}`, {
+        method: 'DELETE',
       }),
 
     join: (token: string) =>

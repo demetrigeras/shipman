@@ -1949,6 +1949,127 @@
   flex: 1;
 }
 
+/* ── Parties by role: 3-slot deal participant layout ───────────────────── */
+.parties-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.party-slot {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.party-slot-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+.party-slot-icon {
+  font-size: 0.9rem;
+}
+.party-empty-cta {
+  width: 100%;
+  background: transparent;
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  color: #94a3b8;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.party-empty-cta:hover {
+  background: rgba(4, 132, 252, 0.08);
+  color: #0484fc;
+  border-color: #0484fc;
+}
+.party-card {
+  padding: 8px 4px;
+}
+.party-card + .party-card {
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+  margin-top: 6px;
+  padding-top: 10px;
+}
+.party-card-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.party-card-name {
+  flex: 1;
+  font-weight: 500;
+  font-size: 0.88rem;
+}
+.party-card-self {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 400;
+}
+.party-card-email {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 2px;
+  margin-left: 18px;
+  word-break: break-all;
+}
+.party-card-meta {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  margin-top: 2px;
+  margin-left: 18px;
+}
+.party-card-badge {
+  font-size: 0.65rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.party-card-badge--joined {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+.party-card-badge--pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+.role-dot.role-pending {
+  background: #f59e0b;
+}
+.party-card--joined {
+  /* nothing extra; default styling */
+}
+.party-card--pending {
+  opacity: 0.95;
+}
+.party-cancel-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 6px;
+  margin-left: 18px;
+  color: #ef4444;
+  font-size: 0.72rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+.party-cancel-link:hover {
+  text-decoration: underline;
+}
+
 .coinsub-modal-overlay {
   position: fixed;
   inset: 0;

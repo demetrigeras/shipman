@@ -30,9 +30,10 @@ CREATE TABLE IF NOT EXISTS shipman.voyage_payments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_voyage_payments_voyage_id ON shipman.voyage_payments(voyage_id);
-CREATE INDEX idx_voyage_payments_coinsub_session ON shipman.voyage_payments(coinsub_session_id);
+CREATE INDEX IF NOT EXISTS idx_voyage_payments_voyage_id ON shipman.voyage_payments(voyage_id);
+CREATE INDEX IF NOT EXISTS idx_voyage_payments_coinsub_session ON shipman.voyage_payments(coinsub_session_id);
 
+DROP TRIGGER IF EXISTS trg_voyage_payments_updated_at ON shipman.voyage_payments;
 CREATE TRIGGER trg_voyage_payments_updated_at
     BEFORE UPDATE ON shipman.voyage_payments
     FOR EACH ROW

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type {
-  Deal, DealParticipant, ClauseNegotiation, DealVesselDetails, DealCargoDetails,
+  Deal, DealParticipant, DealInviteSummary, ClauseNegotiation, DealVesselDetails, DealCargoDetails,
   ClauseProposal, AIAnalysis,
 } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -30,6 +30,123 @@ function timeAgo(dateStr: string): string {
 // ────────────────────────────────────────────────────────────────────────────
 // Small sub-components
 // ────────────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────────────
+// PartiesByRole — renders a slot for each of the 3 deal roles (shipowner,
+// charterer, broker). Each slot shows one of:
+//   • A joined participant (with Pay button if it's not you)
+//   • A pending invite (email + "Cancel")
+//   • An empty CTA ("+ Invite Shipowner") for roles not yet filled
+// ────────────────────────────────────────────────────────────────────────────
+
+type Role = 'shipowner' | 'charterer' | 'broker';
+
+const ROLE_LABEL: Record<Role, string> = {
+  shipowner: 'Shipowner',
+  charterer: 'Charterer',
+  broker: 'Broker',
+};
+
+const ROLE_ICON: Record<Role, string> = {
+  shipowner: '⚓',
+  charterer: '📦',
+  broker: '🤝',
+};
+
+interface PartiesByRoleProps {
+  roles: Role[];
+  participants: DealParticipant[];
+  pendingInvites: DealInviteSummary[];
+  currentUserID?: string;
+  dealTitle: string;
+  onInvite: (role: Role) => void;
+  onCancelInvite: (inviteId: string) => void;
+}
+
+function PartiesByRole({
+  roles,
+  participants,
+  pendingInvites,
+  currentUserID,
+  dealTitle,
+  onInvite,
+  onCancelInvite,
+}: PartiesByRoleProps) {
+  return (
+    <ul className="parties-list">
+      {roles.map(role => {
+        const joined = participants.filter(p => p.role === role);
+        const invites = pendingInvites.filter(i => i.role === role);
+
+        return (
+          <li key={role} className="party-slot">
+            <div className="party-slot-header">
+              <span className="party-slot-icon">{ROLE_ICON[role]}</span>
+              <span className="party-slot-role">{ROLE_LABEL[role]}</span>
+            </div>
+
+            {joined.length === 0 && invites.length === 0 && (
+              <button
+                type="button"
+                className="party-empty-cta"
+                onClick={() => onInvite(role)}
+              >
+                + Invite {ROLE_LABEL[role]}
+              </button>
+            )}
+
+            {joined.map(p => {
+              const isMe = p.user_id === currentUserID;
+              const email = p.user?.email;
+              return (
+                <div key={p.id} className="party-card party-card--joined">
+                  <div className="party-card-main">
+                    <span className={`role-dot role-${role}`} />
+                    <span className="party-card-name">
+                      {p.user?.full_name || 'Pending'}
+                      {isMe && <span className="party-card-self"> (you)</span>}
+                    </span>
+                    <span className="party-card-badge party-card-badge--joined">Joined</span>
+                  </div>
+                  {email && <div className="party-card-email">{email}</div>}
+                  {!isMe && email && (
+                    <PayButton
+                      recipientEmail={email}
+                      label={`Pay ${p.user?.full_name?.split(' ')[0] ?? ROLE_LABEL[role]}`}
+                      memo={`Shipman deal ${dealTitle}`}
+                      className="btn-pay-sm"
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {invites.map(i => (
+              <div key={i.id} className="party-card party-card--pending">
+                <div className="party-card-main">
+                  <span className="role-dot role-pending" />
+                  <span className="party-card-name">{i.invited_email}</span>
+                  <span className="party-card-badge party-card-badge--pending">Invited</span>
+                </div>
+                <div className="party-card-meta">
+                  Sent {timeAgo(i.created_at)} • expires {new Date(i.expires_at).toLocaleDateString()}
+                </div>
+                <button
+                  type="button"
+                  className="party-cancel-link"
+                  onClick={() => onCancelInvite(i.id)}
+                  title="Cancel this invite"
+                >
+                  Cancel invite
+                </button>
+              </div>
+            ))}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 function DetailRow({ label, value }: { label: string; value?: string | number | null }) {
   if (!value && value !== 0) return null;
@@ -252,6 +369,7 @@ export default function DealViewer() {
 
   const [deal, setDeal] = useState<Deal | null>(null);
   const [participants, setParticipants] = useState<DealParticipant[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<DealInviteSummary[]>([]);
   const [vesselDetails, setVesselDetails] = useState<DealVesselDetails | null>(null);
   const [cargoDetails, setCargoDetails] = useState<DealCargoDetails | null>(null);
   const [negotiations, setNegotiations] = useState<ClauseNegotiation[]>([]);
@@ -289,6 +407,7 @@ export default function DealViewer() {
       const response = await api.deals.get(dealId);
       setDeal(response.deal);
       setParticipants(response.participants || []);
+      setPendingInvites(response.pending_invites || []);
       setVesselDetails(response.vessel_details ?? null);
       setCargoDetails(response.cargo_details ?? null);
 
@@ -331,9 +450,28 @@ export default function DealViewer() {
     try {
       const result = await api.deals.createInvite(id, inviteEmail.trim(), inviteRole);
       setInviteResult({ link: result.invite_link, email_sent: result.email_sent });
+      const refreshed = await api.deals.get(id);
+      setPendingInvites(refreshed.pending_invites || []);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to create invite');
     }
+  };
+
+  const handleCancelInvite = async (inviteId: string) => {
+    if (!id) return;
+    try {
+      await api.deals.cancelInvite(id, inviteId);
+      setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to cancel invite');
+    }
+  };
+
+  const openInviteFor = (role: 'shipowner' | 'charterer' | 'broker') => {
+    setInviteRole(role);
+    setInviteEmail('');
+    setInviteResult(null);
+    setShowInvite(true);
   };
 
   const handleUploadCharterParty = async (file: File) => {
@@ -696,34 +834,16 @@ export default function DealViewer() {
           )}
 
           <div className="panel-participants">
-            <h4>Participants</h4>
-            {participants.length === 0 ? (
-              <p className="empty-text">Just you so far</p>
-            ) : (
-              <ul className="participants-list">
-                {participants.map(p => {
-                  const isMe = p.user_id === user?.id;
-                  const counterpartyEmail = p.user?.email;
-                  return (
-                    <li key={p.id}>
-                      <div className="participant-row">
-                        <span className={`role-dot role-${p.role}`} />
-                        <span className="participant-name">{p.user?.full_name || 'Pending'}</span>
-                        <span className="participant-role">{p.role}</span>
-                      </div>
-                      {!isMe && counterpartyEmail && (
-                        <PayButton
-                          recipientEmail={counterpartyEmail}
-                          label={`Pay ${p.user?.full_name?.split(' ')[0] ?? p.role}`}
-                          memo={`Shipman deal ${deal.title}`}
-                          className="btn-pay-sm"
-                        />
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+            <h4>Parties</h4>
+            <PartiesByRole
+              roles={['shipowner', 'charterer', 'broker']}
+              participants={participants}
+              pendingInvites={pendingInvites}
+              currentUserID={user?.id}
+              dealTitle={deal.title}
+              onInvite={openInviteFor}
+              onCancelInvite={handleCancelInvite}
+            />
           </div>
         </aside>
 

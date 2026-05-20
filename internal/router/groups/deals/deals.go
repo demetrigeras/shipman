@@ -42,6 +42,7 @@ func (h *Handler) AddRoutes(r *gin.RouterGroup) {
 	r.GET("", h.handleList)
 	r.GET("/:id", h.handleGet)
 	r.POST("/:id/invite", h.handleCreateInvite)
+	r.DELETE("/:id/invites/:inviteId", h.handleCancelInvite)
 	r.POST("/join", h.handleJoinDeal)
 	r.PATCH("/:id/document", h.handleAttachDocument)
 	r.PUT("/:id/vessel", h.handleUpsertVesselDetails)
@@ -142,14 +143,19 @@ func (h *Handler) handleGet(c *gin.Context) {
 	}
 
 	participants, _ := h.dealRepo.GetParticipants(c.Request.Context(), dealID)
+	pendingInvites, _ := h.dealRepo.ListPendingInvites(c.Request.Context(), dealID)
+	if pendingInvites == nil {
+		pendingInvites = []db.DealInvite{}
+	}
 	vesselDetails, _ := h.detailsRepo.GetVesselDetails(c.Request.Context(), dealID)
 	cargoDetails, _ := h.detailsRepo.GetCargoDetails(c.Request.Context(), dealID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"deal":           deal,
-		"participants":   participants,
-		"vessel_details": vesselDetails,
-		"cargo_details":  cargoDetails,
+		"deal":            deal,
+		"participants":    participants,
+		"pending_invites": pendingInvites,
+		"vessel_details":  vesselDetails,
+		"cargo_details":   cargoDetails,
 	})
 }
 
@@ -452,6 +458,35 @@ func (h *Handler) handleCreateInvite(c *gin.Context) {
 		"role":         invite.Role,
 		"email_sent":   h.emailSvc.Enabled(),
 	})
+}
+
+// handleCancelInvite deletes an unused invite, scoped to the deal so a
+// caller can only cancel invites for deals they're a participant in.
+func (h *Handler) handleCancelInvite(c *gin.Context) {
+	userID := c.MustGet("userID").(uuid.UUID)
+
+	dealID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid deal ID"})
+		return
+	}
+	inviteID, err := uuid.Parse(c.Param("inviteId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invite ID"})
+		return
+	}
+
+	isParticipant, err := h.dealRepo.IsParticipant(c.Request.Context(), dealID, userID)
+	if err != nil || !isParticipant {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		return
+	}
+
+	if err := h.dealRepo.CancelInvite(c.Request.Context(), dealID, inviteID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to cancel invite"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }
 
 type JoinDealRequest struct {
