@@ -904,30 +904,13 @@ export default function VoyageViewer() {
           <div className="voyage-tab-content">
 
             {/* ━━ EMBEDDED WALLET (RocketRamp) ━━━━━━━━━━━━━━━━━━ */}
-            {voyage.counterparty_email ? (
-              <div className="pay-wallet-card">
-                <div className="pay-wallet-header">
-                  <div>
-                    <div className="pay-wallet-label">Send Funds</div>
-                    <div className="pay-wallet-desc">
-                      Wallet prefilled for <strong>{voyage.counterparty_name || voyage.counterparty_email}</strong>. Sign in to your RocketRamp wallet below to send.
-                    </div>
-                  </div>
-                </div>
-                <EmbedWallet
-                  recipientEmail={voyage.counterparty_email}
-                  memo={`Voyage ${voyage.voyage_number || voyage.id.slice(0, 8)}`}
-                  height={760}
-                />
-              </div>
-            ) : (
-              <div className="pay-wallet-card pay-wallet-card--empty">
-                <div className="pay-wallet-label">Send Funds</div>
-                <p className="pay-wallet-desc">
-                  Add a counterparty to this voyage to enable the embedded wallet for direct payments.
-                </p>
-              </div>
-            )}
+            <WalletSection
+              voyage={voyage}
+              onCounterpartySaved={(email, name) => {
+                setVoyage(v => v ? { ...v, counterparty_email: email, counterparty_name: name ?? v.counterparty_name } : v);
+              }}
+            />
+
 
             {/* ━━ TWO-COLUMN INVOICES ━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
             <div className="pay-invoices-grid">
@@ -1374,6 +1357,113 @@ export default function VoyageViewer() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// WalletSection — always-visible RocketRamp wallet for the Payments tab.
+//
+// Lets you type/edit the recipient inline (defaults to the voyage's
+// counterparty, falls back to a test email so the wallet always renders).
+// "Load Wallet" mints a fresh single-use embed_code for the current email.
+// "Save as counterparty" persists the email back onto the voyage so future
+// visits skip the input step.
+// ────────────────────────────────────────────────────────────────────────────
+
+const DEFAULT_TEST_RECIPIENT = 'demetrijgeras+1@gmail.com';
+
+interface WalletSectionProps {
+  voyage: Voyage;
+  onCounterpartySaved: (email: string, name?: string) => void;
+}
+
+function WalletSection({ voyage, onCounterpartySaved }: WalletSectionProps) {
+  // The email currently powering the iframe (commits on Load / save).
+  const [activeEmail, setActiveEmail] = useState<string>(
+    voyage.counterparty_email || DEFAULT_TEST_RECIPIENT,
+  );
+  // The text in the input box (uncommitted edits).
+  const [draftEmail, setDraftEmail] = useState<string>(
+    voyage.counterparty_email || DEFAULT_TEST_RECIPIENT,
+  );
+  const [savingCounterparty, setSavingCounterparty] = useState(false);
+
+  const memo = `Voyage ${voyage.voyage_number || voyage.id.slice(0, 8)}`;
+  const isPersisted = voyage.counterparty_email === activeEmail;
+  const draftDiffers = draftEmail.trim() !== activeEmail && draftEmail.trim().length > 0;
+
+  const loadWallet = () => {
+    const next = draftEmail.trim();
+    if (next) setActiveEmail(next);
+  };
+
+  const saveAsCounterparty = async () => {
+    const next = draftEmail.trim() || activeEmail;
+    setSavingCounterparty(true);
+    try {
+      await api.voyages.update(voyage.id, { counterparty_email: next });
+      setActiveEmail(next);
+      onCounterpartySaved(next);
+    } catch {
+      // swallow; the wallet still works from the in-memory state.
+    } finally {
+      setSavingCounterparty(false);
+    }
+  };
+
+  return (
+    <div className="pay-wallet-card">
+      <div className="pay-wallet-header">
+        <div style={{ flex: 1 }}>
+          <div className="pay-wallet-label">Send Funds</div>
+          <div className="pay-wallet-desc">
+            Wallet is prefilled with the recipient below — sign in to your RocketRamp wallet and send.
+          </div>
+        </div>
+      </div>
+
+      <div className="pay-wallet-recipient">
+        <label className="pay-wallet-recipient-label">Recipient email</label>
+        <div className="pay-wallet-recipient-row">
+          <input
+            type="email"
+            className="pay-wallet-recipient-input"
+            value={draftEmail}
+            onChange={e => setDraftEmail(e.target.value)}
+            placeholder="charterer@example.com"
+          />
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={loadWallet}
+            disabled={!draftDiffers}
+            title="Mint a fresh embed code for this recipient"
+          >
+            {draftDiffers ? 'Load wallet' : 'Loaded'}
+          </button>
+          <button
+            type="button"
+            className="btn-primary btn-sm"
+            onClick={saveAsCounterparty}
+            disabled={savingCounterparty || (isPersisted && !draftDiffers)}
+            title="Save this as the voyage's counterparty so it auto-fills next time"
+          >
+            {savingCounterparty ? 'Saving…' : (isPersisted ? 'Saved ✓' : 'Save as counterparty')}
+          </button>
+        </div>
+        {!voyage.counterparty_email && (
+          <p className="pay-wallet-hint">
+            Defaulted to <code>{DEFAULT_TEST_RECIPIENT}</code> for testing. Change the email above and click <strong>Load wallet</strong>, or <strong>Save as counterparty</strong> to lock it in for this voyage.
+          </p>
+        )}
+      </div>
+
+      <EmbedWallet
+        recipientEmail={activeEmail}
+        memo={memo}
+        height={760}
+      />
     </div>
   );
 }

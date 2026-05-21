@@ -2212,6 +2212,59 @@
   font-size: 0.78em;
 }
 
+/* Editable recipient row above the embedded wallet. */
+.pay-wallet-recipient {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.pay-wallet-recipient-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+.pay-wallet-recipient-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.pay-wallet-recipient-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+}
+.pay-wallet-recipient-input:focus {
+  outline: none;
+  border-color: #0484fc;
+  box-shadow: 0 0 0 3px rgba(4, 132, 252, 0.15);
+}
+.pay-wallet-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.45;
+}
+.pay-wallet-hint code {
+  background: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+}
+
 .coinsub-modal-overlay {
   position: fixed;
   inset: 0;

@@ -1,0 +1,78 @@
+# Render Blueprint — declarative infra-as-code for the Shipman backend.
+#
+# Why this file exists:
+# Instead of manually clicking through Render's UI to add every env var, this
+# file is the single source of truth. Render auto-syncs new env var *keys*
+# from this file every deploy. For secrets we mark `sync: false`, which means
+# Render only prompts for the value the first time and never echoes it back.
+#
+# How to use:
+# 1. Commit this file to the repo.
+# 2. In Render: New + → Blueprint → connect this repo → Apply.
+#    Render reads render.yaml and creates/updates the service.
+# 3. Render shows a form with one input per `sync: false` env var.
+#    Paste each secret once. Done.
+# 4. From then on, adding a new env var = add a line here, push, deploy.
+#    For new secret values, use:
+#       render env set --service-id <id> KEY=VAL    (Render CLI)
+#       or paste in the dashboard once.
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+databases:
+  - name: shipman-db
+    databaseName: shipman_db
+    user: shipman_db_user
+    plan: free
+    region: ohio
+    # If you already created the Postgres in the dashboard, link it here by
+    # name and Render won't recreate it. Otherwise Render provisions a new one.
+
+services:
+  - type: web
+    name: shipman
+    runtime: go
+    plan: free
+    region: ohio
+    # The Go buildpack auto-detects `go build`. We override so we also build
+    # the migrate binary and stamp a deterministic output name.
+    buildCommand: |
+      go build -o app ./cmd
+      go build -o migrate ./cmd/migrate
+    # Run migrations on every boot, then start the server. Migrations are
+    # idempotent (CREATE … IF NOT EXISTS) so re-runs are safe.
+    startCommand: ./migrate up && ./app
+    healthCheckPath: /
+    autoDeploy: true
+
+    envVars:
+      # ── Server ─────────────────────────────────────────────────────────
+      - key: HTTP_ADDR
+        value: 0.0.0.0:8080
+      - key: APP_URL
+        value: https://shipman.demetrijgeras.workers.dev
+
+      # ── Database ───────────────────────────────────────────────────────
+      # Render auto-injects the connection string from the linked DB above.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shipman-db
+          property: connectionString
+
+      # ── Auth ───────────────────────────────────────────────────────────
+      - key: JWT_SECRET
+        generateValue: true   # Render generates a strong random value once.
+
+      # ── AI (DeepSeek via OpenAI-compatible API) ────────────────────────
+      - key: AI_PROVIDER
+        value: deepseek
+      - key: OPENAI_API_KEY
+        sync: false           # You paste once in the Blueprint form.
+
+      # ── RocketRamp / Vantack ───────────────────────────────────────────
+      - key: ROCKETRAMP_MERCHANT_ID
+        sync: false
+      - key: ROCKETRAMP_API_KEY
+        sync: false
+      - key: ROCKETRAMP_TEST_MODE
+        value: "true"
