@@ -53,6 +53,11 @@ type Voyage struct {
 	InsuranceCost       *float64   `json:"insurance_cost,omitempty"`
 	CounterpartyName    *string    `json:"counterparty_name,omitempty"`
 	CounterpartyEmail   *string    `json:"counterparty_email,omitempty"`
+	// Linked users for the two non-owner parties. Set when somebody accepts
+	// an invite; gives the FE owner/counterparty/broker access checks and
+	// makes voyages appear in the joined user's `/voyages` list.
+	CounterpartyUserID  *uuid.UUID `json:"counterparty_user_id,omitempty"`
+	BrokerUserID        *uuid.UUID `json:"broker_user_id,omitempty"`
 	DocumentID          *uuid.UUID `json:"document_id,omitempty"`
 	CharterType         *string    `json:"charter_type,omitempty"`
 	Status              string     `json:"status"`
@@ -161,6 +166,7 @@ func (repo *VoyageRepository) Retrieve(ctx context.Context, id uuid.UUID) (Voyag
 			payment_frequency, first_payment_date, total_contract_value,
 			commission_rate, bunker_cost, port_costs, insurance_cost,
 			counterparty_name, counterparty_email,
+			counterparty_user_id, broker_user_id,
 			document_id, charter_type,
 			status, notes, created_at, updated_at
 		FROM shipman.voyages
@@ -204,6 +210,8 @@ func (repo *VoyageRepository) Retrieve(ctx context.Context, id uuid.UUID) (Voyag
 		insuranceCost   sql.NullFloat64
 		counterName     sql.NullString
 		counterEmail    sql.NullString
+		counterUserID   sql.NullString
+		brokerUserID    sql.NullString
 		documentID      sql.NullString
 		charterType     sql.NullString
 		notes           sql.NullString
@@ -220,6 +228,7 @@ func (repo *VoyageRepository) Retrieve(ctx context.Context, id uuid.UUID) (Voyag
 		&payFreq, &firstPayDate, &totalValue,
 		&commRate, &bunkerCost, &portCosts, &insuranceCost,
 		&counterName, &counterEmail,
+		&counterUserID, &brokerUserID,
 		&documentID, &charterType,
 		&v.Status, &notes, &v.CreatedAt, &v.UpdatedAt,
 	)
@@ -262,6 +271,8 @@ func (repo *VoyageRepository) Retrieve(ctx context.Context, id uuid.UUID) (Voyag
 	v.InsuranceCost = floatPtr(insuranceCost)
 	v.CounterpartyName = stringPtr(counterName)
 	v.CounterpartyEmail = stringPtr(counterEmail)
+	v.CounterpartyUserID = uuidPtrNullable(counterUserID)
+	v.BrokerUserID = uuidPtrNullable(brokerUserID)
 	v.DocumentID = uuidPtrNullable(documentID)
 	v.CharterType = stringPtr(charterType)
 	v.Notes = stringPtr(notes)
@@ -269,15 +280,21 @@ func (repo *VoyageRepository) Retrieve(ctx context.Context, id uuid.UUID) (Voyag
 }
 
 func (repo *VoyageRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]Voyage, error) {
+	// Return every voyage the user is involved in — owner, counterparty
+	// (the joined-via-invite side), or broker. Without this any invited user
+	// would see an empty /voyages page after accepting.
 	const query = `
 		SELECT id, deal_id, voyage_number, vessel_name, imo_number,
 		       departure_port, arrival_port,
 		       planned_departure_at, planned_arrival_at,
 		       actual_departure_at, actual_arrival_at,
 		       cargo_type, cargo_quantity,
+		       counterparty_user_id, broker_user_id, owner_user_id,
 		       status, created_at, updated_at
 		FROM shipman.voyages
 		WHERE owner_user_id = $1
+		   OR counterparty_user_id = $1
+		   OR broker_user_id = $1
 		ORDER BY COALESCE(planned_departure_at, created_at) DESC
 	`
 	rows, err := Pool.QueryContext(ctx, query, userID)
@@ -289,25 +306,29 @@ func (repo *VoyageRepository) ListByUser(ctx context.Context, userID uuid.UUID) 
 	var voyages []Voyage
 	for rows.Next() {
 		var (
-			v         Voyage
-			dealID    sql.NullString
-			vNumber   sql.NullString
-			vessel    sql.NullString
-			imo       sql.NullString
-			depPort   sql.NullString
-			arrPort   sql.NullString
-			planDep   sql.NullTime
-			planArr   sql.NullTime
-			actDep    sql.NullTime
-			actArr    sql.NullTime
-			cargoType sql.NullString
-			cargoQty  sql.NullFloat64
+			v             Voyage
+			dealID        sql.NullString
+			vNumber       sql.NullString
+			vessel        sql.NullString
+			imo           sql.NullString
+			depPort       sql.NullString
+			arrPort       sql.NullString
+			planDep       sql.NullTime
+			planArr       sql.NullTime
+			actDep        sql.NullTime
+			actArr        sql.NullTime
+			cargoType     sql.NullString
+			cargoQty      sql.NullFloat64
+			counterUserID sql.NullString
+			brokerUserID  sql.NullString
+			ownerUserID   sql.NullString
 		)
 		if err := rows.Scan(
 			&v.ID, &dealID, &vNumber, &vessel, &imo,
 			&depPort, &arrPort,
 			&planDep, &planArr, &actDep, &actArr,
 			&cargoType, &cargoQty,
+			&counterUserID, &brokerUserID, &ownerUserID,
 			&v.Status, &v.CreatedAt, &v.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -324,9 +345,51 @@ func (repo *VoyageRepository) ListByUser(ctx context.Context, userID uuid.UUID) 
 		v.ActualArrival = timePtr(actArr)
 		v.CargoType = stringPtr(cargoType)
 		v.CargoQuantity = floatPtr(cargoQty)
+		v.CounterpartyUserID = uuidPtrNullable(counterUserID)
+		v.BrokerUserID = uuidPtrNullable(brokerUserID)
+		v.OwnerUserID = uuidPtrNullable(ownerUserID)
 		voyages = append(voyages, v)
 	}
 	return voyages, rows.Err()
+}
+
+// IsParticipant returns true when the user is owner, counterparty, or broker
+// on the voyage. Used by all read/write access checks in the voyage handlers.
+func (repo *VoyageRepository) IsParticipant(ctx context.Context, voyageID, userID uuid.UUID) (bool, error) {
+	const query = `
+		SELECT EXISTS(
+			SELECT 1 FROM shipman.voyages
+			WHERE id = $1
+			  AND (owner_user_id = $2 OR counterparty_user_id = $2 OR broker_user_id = $2)
+		)
+	`
+	var exists bool
+	err := Pool.QueryRowContext(ctx, query, voyageID, userID).Scan(&exists)
+	return exists, err
+}
+
+// SetParty stamps user_id into the voyage's role column. role must be one of
+// 'shipowner', 'charterer', 'broker'. The shipowner role implicitly maps to
+// owner_user_id (which already exists), while charterer maps to
+// counterparty_user_id. The column-name interpolation is safe because role
+// is whitelisted.
+func (repo *VoyageRepository) SetParty(ctx context.Context, voyageID uuid.UUID, role string, userID uuid.UUID) error {
+	var col string
+	switch role {
+	case "broker":
+		col = "broker_user_id"
+	case "shipowner":
+		col = "owner_user_id"
+	case "charterer":
+		col = "counterparty_user_id"
+	default:
+		// Fall back to counterparty for any unknown role so the user still
+		// has access — better than silently dropping the link.
+		col = "counterparty_user_id"
+	}
+	q := "UPDATE shipman.voyages SET " + col + " = $2 WHERE id = $1"
+	_, err := Pool.ExecContext(ctx, q, voyageID, userID)
+	return err
 }
 
 func (repo *VoyageRepository) Update(ctx context.Context, v *Voyage) error {

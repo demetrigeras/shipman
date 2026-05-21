@@ -16,6 +16,24 @@ import (
 	"shipman/internal/email"
 )
 
+// isVoyageParticipant reports whether userID is owner, counterparty, or
+// broker on the voyage. Used as the access-control predicate for every read
+// and write operation on a voyage (except hard delete, which stays owner-
+// only). Mirrors db.VoyageRepository.IsParticipant but operates on an
+// already-loaded Voyage so we don't make an extra DB call when we have it.
+func isVoyageParticipant(v db.Voyage, userID uuid.UUID) bool {
+	if v.OwnerUserID != nil && *v.OwnerUserID == userID {
+		return true
+	}
+	if v.CounterpartyUserID != nil && *v.CounterpartyUserID == userID {
+		return true
+	}
+	if v.BrokerUserID != nil && *v.BrokerUserID == userID {
+		return true
+	}
+	return false
+}
+
 type Handler struct {
 	voyageRepo   *db.VoyageRepository
 	positionRepo *db.ShipPositionRepository
@@ -223,9 +241,9 @@ func (h *Handler) handleGet(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get voyage"})
 		return
 	}
-	// Access check
+	// Access check — owner, counterparty, or broker may all read the voyage.
 	userID := c.MustGet("userID").(uuid.UUID)
-	if v.OwnerUserID == nil || *v.OwnerUserID != userID {
+	if !isVoyageParticipant(v, userID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
@@ -245,7 +263,7 @@ func (h *Handler) handleUpdate(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "voyage not found"})
 		return
 	}
-	if existing.OwnerUserID == nil || *existing.OwnerUserID != userID {
+	if !isVoyageParticipant(existing, userID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
@@ -441,7 +459,7 @@ func (h *Handler) handleAttachDocument(c *gin.Context) {
 	}
 
 	existing, err := h.voyageRepo.Retrieve(c.Request.Context(), voyageID)
-	if err != nil || existing.OwnerUserID == nil || *existing.OwnerUserID != userID {
+	if err != nil || !isVoyageParticipant(existing, userID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
@@ -537,7 +555,7 @@ func (h *Handler) handleExtractTerms(c *gin.Context) {
 	}
 
 	existing, err := h.voyageRepo.Retrieve(c.Request.Context(), voyageID)
-	if err != nil || existing.OwnerUserID == nil || *existing.OwnerUserID != userID {
+	if err != nil || !isVoyageParticipant(existing, userID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
@@ -754,7 +772,7 @@ func (h *Handler) handleCreateInvite(c *gin.Context) {
 	}
 
 	existing, err := h.voyageRepo.Retrieve(c.Request.Context(), voyageID)
-	if err != nil || existing.OwnerUserID == nil || *existing.OwnerUserID != userID {
+	if err != nil || !isVoyageParticipant(existing, userID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
@@ -880,13 +898,24 @@ func (h *Handler) handleJoinVoyage(c *gin.Context) {
 		return
 	}
 
-	// Update voyage counterparty info with joining user's name + email
-	if v, err2 := h.voyageRepo.Retrieve(c.Request.Context(), invite.VoyageID); err2 == nil {
-		v.CounterpartyEmail = &joiningUser.Email
-		v.CounterpartyName = &joiningUser.FullName
-		if err3 := h.voyageRepo.Update(c.Request.Context(), &v); err3 != nil {
-			log.Printf("handleJoinVoyage: failed to update counterparty: %v", err3)
+	// Update voyage counterparty display fields (name+email) for back-compat
+	// with the FE that reads them as strings. Don't overwrite if this invite
+	// is for a broker — the broker isn't the counterparty.
+	if invite.Role != "broker" {
+		if v, err2 := h.voyageRepo.Retrieve(c.Request.Context(), invite.VoyageID); err2 == nil {
+			v.CounterpartyEmail = &joiningUser.Email
+			v.CounterpartyName = &joiningUser.FullName
+			if err3 := h.voyageRepo.Update(c.Request.Context(), &v); err3 != nil {
+				log.Printf("handleJoinVoyage: failed to update counterparty: %v", err3)
+			}
 		}
+	}
+
+	// Link the joining user into the matching party slot on the voyage. This
+	// is what makes the voyage appear in their `/voyages` list and grants
+	// them access to /voyages/:id.
+	if err := h.voyageRepo.SetParty(c.Request.Context(), invite.VoyageID, invite.Role, userID); err != nil {
+		log.Printf("handleJoinVoyage: failed to link party: %v", err)
 	}
 
 	_ = h.voyageRepo.UseInvite(c.Request.Context(), req.Token, userID)

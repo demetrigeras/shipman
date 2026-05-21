@@ -53,9 +53,18 @@ func (h *PaymentHandler) AddPublicRoutes(r *gin.RouterGroup) {
 	r.POST("/webhooks/coinsub", h.handleWebhook)
 }
 
-// canAccessVoyage returns true if the user is the voyage owner or the counterparty (by email).
+// canAccessVoyage returns true if the user is owner, counterparty, or
+// broker on the voyage. Primary check is against the user_id columns set
+// by handleJoinVoyage. The email fallback is kept for legacy data where
+// somebody was set as counterparty by email before user-id columns existed.
 func (h *PaymentHandler) canAccessVoyage(ctx context.Context, v db.Voyage, userID uuid.UUID) bool {
 	if v.OwnerUserID != nil && *v.OwnerUserID == userID {
+		return true
+	}
+	if v.CounterpartyUserID != nil && *v.CounterpartyUserID == userID {
+		return true
+	}
+	if v.BrokerUserID != nil && *v.BrokerUserID == userID {
 		return true
 	}
 	if v.CounterpartyEmail != nil {
