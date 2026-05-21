@@ -1379,91 +1379,104 @@ interface WalletSectionProps {
 }
 
 function WalletSection({ voyage, onCounterpartySaved }: WalletSectionProps) {
-  // The email currently powering the iframe (commits on Load / save).
-  const [activeEmail, setActiveEmail] = useState<string>(
-    voyage.counterparty_email || DEFAULT_TEST_RECIPIENT,
-  );
-  // The text in the input box (uncommitted edits).
+  // The text in the input box. This is the email we'll use when the wallet
+  // modal opens — we mint a fresh embed code each time the modal is opened.
   const [draftEmail, setDraftEmail] = useState<string>(
     voyage.counterparty_email || DEFAULT_TEST_RECIPIENT,
   );
   const [savingCounterparty, setSavingCounterparty] = useState(false);
+  const [walletOpen, setWalletOpen] = useState(false);
 
   const memo = `Voyage ${voyage.voyage_number || voyage.id.slice(0, 8)}`;
-  const isPersisted = voyage.counterparty_email === activeEmail;
-  const draftDiffers = draftEmail.trim() !== activeEmail && draftEmail.trim().length > 0;
+  const trimmedDraft = draftEmail.trim();
+  const isPersisted = !!voyage.counterparty_email && voyage.counterparty_email === trimmedDraft;
 
-  const loadWallet = () => {
-    const next = draftEmail.trim();
-    if (next) setActiveEmail(next);
+  const openWallet = () => {
+    if (trimmedDraft) setWalletOpen(true);
   };
+  const closeWallet = () => setWalletOpen(false);
 
   const saveAsCounterparty = async () => {
-    const next = draftEmail.trim() || activeEmail;
+    if (!trimmedDraft) return;
     setSavingCounterparty(true);
     try {
-      await api.voyages.update(voyage.id, { counterparty_email: next });
-      setActiveEmail(next);
-      onCounterpartySaved(next);
+      await api.voyages.update(voyage.id, { counterparty_email: trimmedDraft });
+      onCounterpartySaved(trimmedDraft);
     } catch {
-      // swallow; the wallet still works from the in-memory state.
+      // Swallow — the recipient is still valid in memory; user can retry.
     } finally {
       setSavingCounterparty(false);
     }
   };
 
   return (
-    <div className="pay-wallet-card">
-      <div className="pay-wallet-header">
-        <div style={{ flex: 1 }}>
-          <div className="pay-wallet-label">Send Funds</div>
-          <div className="pay-wallet-desc">
-            Wallet is prefilled with the recipient below — sign in to your RocketRamp wallet and send.
+    <>
+      <div className="pay-wallet-card">
+        <div className="pay-wallet-header">
+          <div style={{ flex: 1 }}>
+            <div className="pay-wallet-label">Send Funds</div>
+            <div className="pay-wallet-desc">
+              Pick a recipient below, then open the RocketRamp wallet to send.
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="pay-wallet-recipient">
-        <label className="pay-wallet-recipient-label">Recipient email</label>
-        <div className="pay-wallet-recipient-row">
-          <input
-            type="email"
-            className="pay-wallet-recipient-input"
-            value={draftEmail}
-            onChange={e => setDraftEmail(e.target.value)}
-            placeholder="charterer@example.com"
-          />
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            onClick={loadWallet}
-            disabled={!draftDiffers}
-            title="Mint a fresh embed code for this recipient"
-          >
-            {draftDiffers ? 'Load wallet' : 'Loaded'}
-          </button>
-          <button
-            type="button"
-            className="btn-primary btn-sm"
-            onClick={saveAsCounterparty}
-            disabled={savingCounterparty || (isPersisted && !draftDiffers)}
-            title="Save this as the voyage's counterparty so it auto-fills next time"
-          >
-            {savingCounterparty ? 'Saving…' : (isPersisted ? 'Saved ✓' : 'Save as counterparty')}
-          </button>
+        <div className="pay-wallet-recipient">
+          <label className="pay-wallet-recipient-label">Recipient email</label>
+          <div className="pay-wallet-recipient-row">
+            <input
+              type="email"
+              className="pay-wallet-recipient-input"
+              value={draftEmail}
+              onChange={e => setDraftEmail(e.target.value)}
+              placeholder="charterer@example.com"
+            />
+            <button
+              type="button"
+              className="btn-secondary btn-sm"
+              onClick={saveAsCounterparty}
+              disabled={savingCounterparty || isPersisted || !trimmedDraft}
+              title="Save this as the voyage's counterparty so it auto-fills next time"
+            >
+              {savingCounterparty ? 'Saving…' : (isPersisted ? 'Saved ✓' : 'Save as counterparty')}
+            </button>
+          </div>
+          {!voyage.counterparty_email && (
+            <p className="pay-wallet-hint">
+              Defaulted to <code>{DEFAULT_TEST_RECIPIENT}</code> for testing. Change the email above, then click <strong>Open Wallet</strong> to send.
+            </p>
+          )}
         </div>
-        {!voyage.counterparty_email && (
-          <p className="pay-wallet-hint">
-            Defaulted to <code>{DEFAULT_TEST_RECIPIENT}</code> for testing. Change the email above and click <strong>Load wallet</strong>, or <strong>Save as counterparty</strong> to lock it in for this voyage.
-          </p>
-        )}
+
+        <button
+          type="button"
+          className="btn-primary btn-wallet-open"
+          onClick={openWallet}
+          disabled={!trimmedDraft}
+        >
+          💸 Open Wallet — Pay <strong>{trimmedDraft || 'recipient'}</strong>
+        </button>
       </div>
 
-      <EmbedWallet
-        recipientEmail={activeEmail}
-        memo={memo}
-        height={760}
-      />
-    </div>
+      {walletOpen && (
+        <div className="coinsub-modal-overlay" onClick={closeWallet}>
+          <div className="coinsub-modal" onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              className="coinsub-modal-close"
+              onClick={closeWallet}
+              aria-label="Close wallet"
+            >
+              ✕
+            </button>
+            <EmbedWallet
+              recipientEmail={trimmedDraft}
+              memo={memo}
+              height={760}
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

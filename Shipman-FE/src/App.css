@@ -2265,6 +2265,24 @@
   border: 1px solid #e2e8f0;
 }
 
+/* The big call-to-action button that opens the RocketRamp wallet modal. */
+.btn-wallet-open {
+  display: block;
+  width: 100%;
+  padding: 14px 18px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 10px;
+  letter-spacing: 0.01em;
+}
+.btn-wallet-open strong {
+  font-weight: 700;
+}
+.btn-wallet-open:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .coinsub-modal-overlay {
   position: fixed;
   inset: 0;
