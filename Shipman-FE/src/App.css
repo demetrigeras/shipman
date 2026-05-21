@@ -2295,15 +2295,25 @@
 }
 .coinsub-modal {
   position: relative;
-  width: 420px;
-  height: 680px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
+  width: 440px;
+  height: 860px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
   background: #fff;
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
   animation: coinsubSlideUp 0.25s ease;
+  display: flex;
+  flex-direction: column;
+}
+/* Make the embedded wallet stretch to fill whatever height the modal got
+   (important on shorter screens where max-height clips below 860px). */
+.coinsub-modal .embed-wallet,
+.coinsub-modal .embed-wallet-iframe {
+  flex: 1;
+  height: 100% !important;
+  min-height: 0;
 }
 .coinsub-modal-close {
   position: absolute;
