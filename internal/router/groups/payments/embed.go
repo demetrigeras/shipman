@@ -32,6 +32,9 @@ func (h *Handler) AddRoutes(r *gin.RouterGroup) {
 type createEmbedCodeRequest struct {
 	RecipientEmail string `json:"recipient_email" binding:"required,email"`
 	Memo           string `json:"memo"`
+	// Amount in USD. Optional; when > 0 the RR /send screen pre-fills the
+	// amount field too (useful for payment-request flows).
+	Amount *float64 `json:"amount"`
 }
 
 type createEmbedCodeResponse struct {
@@ -59,7 +62,7 @@ func (h *Handler) handleCreateEmbedCode(c *gin.Context) {
 	req.RecipientEmail = strings.TrimSpace(req.RecipientEmail)
 	req.Memo = strings.TrimSpace(req.Memo)
 
-	code, err := h.rocket.CreateEmbedCode(c.Request.Context(), req.RecipientEmail, req.Memo)
+	code, err := h.rocket.CreateEmbedCode(c.Request.Context(), req.RecipientEmail, req.Memo, req.Amount)
 	if err != nil {
 		if errors.Is(err, rocketramp.ErrNotConfigured) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{

@@ -634,12 +634,18 @@ export const api = {
     // Mint a fresh single-use RocketRamp embed code for the given recipient.
     // Prefer `embed_url` (full popup URL); `embed_base_url`+`embed_code` is
     // kept around for older callers that build the URL themselves.
-    createEmbedCode: (recipientEmail: string, memo?: string) =>
+    // `amount` (USD) is optional; pass it for payment-request flows so RR's
+    // /send screen pre-fills the amount field too.
+    createEmbedCode: (recipientEmail: string, memo?: string, amount?: number) =>
       request<{ embed_code: string; embed_base_url: string; embed_url: string; test_mode: boolean }>(
         '/payments/embed-code',
         {
           method: 'POST',
-          body: JSON.stringify({ recipient_email: recipientEmail, memo: memo ?? '' }),
+          body: JSON.stringify({
+            recipient_email: recipientEmail,
+            memo: memo ?? '',
+            ...(amount != null && amount > 0 ? { amount } : {}),
+          }),
         },
       ),
 

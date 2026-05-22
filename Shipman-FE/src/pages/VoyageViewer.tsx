@@ -1406,7 +1406,7 @@ export default function VoyageViewer() {
 // visits skip the input step.
 // ────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_TEST_RECIPIENT = 'demetrijgeras+1@gmail.com';
+const DEFAULT_TEST_RECIPIENT = 'demetri+359e@coinsub.io';
 
 interface WalletSectionProps {
   voyage: Voyage;
@@ -1496,7 +1496,7 @@ function WalletSection({ voyage, prefillEmail, suggestedAmount, onCounterpartySa
 
     setOpening(true);
     try {
-      const result = await api.payments.createEmbedCode(trimmedDraft, memo);
+      const result = await api.payments.createEmbedCode(trimmedDraft, memo, suggestedAmount);
       // Prefer the backend-built `embed_url` (uses /?s=<code> form, which
       // populates RR's hidden `prefilledSessionId` form input directly).
       // Fall back to the legacy /embed/<code> shape only if the backend
@@ -1530,7 +1530,7 @@ function WalletSection({ voyage, prefillEmail, suggestedAmount, onCounterpartySa
         <div style={{ flex: 1 }}>
           <div className="pay-wallet-label">Send Funds</div>
           <div className="pay-wallet-desc">
-            Pick a recipient below, then open the RocketRamp wallet in a new window to send.
+            Pick a recipient below, then open the RocketRamp wallet. Sign in with <strong>your own</strong> RocketRamp account (the one with funds); after OTP the /send screen will lock to the recipient and amount we sent.
           </div>
         </div>
       </div>
@@ -1616,6 +1616,7 @@ function WalletSection({ voyage, prefillEmail, suggestedAmount, onCounterpartySa
         <div>
           <strong>Debug Prefill:</strong>{' '}
           recipient=<code>{trimmedDraft || '—'}</code>{' '}
+          amount=<code>{suggestedAmount != null && suggestedAmount > 0 ? suggestedAmount : '—'}</code>{' '}
           memo=<code>{memo}</code>{' '}
           last_embed_code=<code>{lastDebug?.embedCode || '—'}</code>
         </div>

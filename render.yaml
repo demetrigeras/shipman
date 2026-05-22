@@ -75,4 +75,4 @@ services:
       - key: ROCKETRAMP_API_KEY
         sync: false
       - key: ROCKETRAMP_TEST_MODE
-        value: "true"
+        value: "false"

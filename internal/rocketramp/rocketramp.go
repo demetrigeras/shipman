@@ -23,8 +23,7 @@ const (
 	//     `prefilledSessionId` input directly, skipping ShowEmbedPrefill)
 	//   - Root + "/embed/<code>" (legacy: relies on ShowEmbedPrefill to
 	//     redirect to /?s=<code>)
-	prodEmbedRoot    = "https://app.myrocketramp.com"
-	sandboxEmbedRoot = "https://test.myrocketramp.com"
+	prodEmbedRoot = "https://app.myrocketramp.com"
 )
 
 // Client talks to the Vantack Prefill API.
@@ -65,9 +64,7 @@ func (c *Client) EmbedBaseURL() string {
 
 // embedRoot returns the wallet host root (no `/embed` suffix).
 func (c *Client) embedRoot() string {
-	if c.testMode {
-		return sandboxEmbedRoot
-	}
+
 	return prodEmbedRoot
 }
 
@@ -94,8 +91,9 @@ func (c *Client) apiBase() string {
 }
 
 type prefillRequest struct {
-	Email string `json:"email"`
-	Memo  string `json:"memo,omitempty"`
+	Email  string   `json:"email"`
+	Memo   string   `json:"memo,omitempty"`
+	Amount *float64 `json:"amount,omitempty"`
 }
 
 type prefillResponse struct {
@@ -105,14 +103,22 @@ type prefillResponse struct {
 }
 
 // CreateEmbedCode mints a fresh single-use embed_code for the given
-// recipient email. The returned UUID can be passed to the FE which embeds
-// the wallet iframe at <EmbedBaseURL>/<embedCode>.
-func (c *Client) CreateEmbedCode(ctx context.Context, recipientEmail, memo string) (string, error) {
+// recipient email. The returned UUID can be passed to the FE which opens
+// the wallet at <embedRoot>/?s=<embedCode>.
+//
+// `amount` is optional. When non-nil and > 0 the RR /send screen will
+// pre-fill (and lock) the amount field after OTP succeeds.
+func (c *Client) CreateEmbedCode(ctx context.Context, recipientEmail, memo string, amount *float64) (string, error) {
 	if !c.Enabled() {
 		return "", ErrNotConfigured
 	}
 
-	body, err := json.Marshal(prefillRequest{Email: recipientEmail, Memo: memo})
+	payload := prefillRequest{Email: recipientEmail, Memo: memo}
+	// RR rejects amount<=0, so only attach when meaningful.
+	if amount != nil && *amount > 0 {
+		payload.Amount = amount
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshal prefill body: %w", err)
 	}

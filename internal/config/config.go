@@ -120,9 +120,11 @@ func Load() (*Config, error) {
 
 	rocketRampMerchant := envOr("ROCKETRAMP_MERCHANT_ID", yc.RocketRamp.MerchantID, "")
 	rocketRampKey := envOr("ROCKETRAMP_API_KEY", yc.RocketRamp.APIKey, "")
-	rocketRampTestMode := true
+	// Default to PROD (app.myrocketramp.com + api.vantack.com). Sandbox is
+	// only used when ROCKETRAMP_TEST_MODE is explicitly set to "true"/"1".
+	rocketRampTestMode := false
 	if v := os.Getenv("ROCKETRAMP_TEST_MODE"); v != "" {
-		rocketRampTestMode = v != "false" && v != "0"
+		rocketRampTestMode = v == "true" || v == "1"
 	} else if yc.RocketRamp.TestMode != nil {
 		rocketRampTestMode = *yc.RocketRamp.TestMode
 	}
