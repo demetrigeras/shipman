@@ -1,6 +1,12 @@
 // Package rocketramp wraps the Vantack Prefill API for the RocketRamp
 // embed wallet. The merchant credentials must stay server-side; the only
 // thing we ever return to the browser is a single-use embed_code UUID.
+//
+// PRODUCTION ONLY. Sandbox / test URLs have been intentionally removed —
+// the popup, the Vantack API, and the wallet host all point at the live
+// RocketRamp environment regardless of any `ROCKETRAMP_TEST_MODE` env var
+// or YAML config. The TestMode flag/method is kept around purely so the
+// existing call sites compile; it has no effect on URLs anymore.
 package rocketramp
 
 import (
@@ -15,32 +21,25 @@ import (
 )
 
 const (
-	prodAPIBase    = "https://api.vantack.com"
-	sandboxAPIBase = "https://test-api.vantack.com"
-	// Embed host roots. We keep these as roots (no `/embed` suffix) so we
-	// can construct either form of the popup URL:
-	//   - Root + "/?s=<code>"  (preferred: feeds default_route.go's hidden
-	//     `prefilledSessionId` input directly, skipping ShowEmbedPrefill)
-	//   - Root + "/embed/<code>" (legacy: relies on ShowEmbedPrefill to
-	//     redirect to /?s=<code>)
-	prodEmbedRoot = "https://app.myrocketramp.com"
+	apiBaseURL   = "https://api.vantack.com"
+	embedRootURL = "https://app.myrocketramp.com"
 )
 
 // Client talks to the Vantack Prefill API.
 type Client struct {
 	merchantID string
 	apiKey     string
-	testMode   bool
 	http       *http.Client
 }
 
 // NewClient returns a configured Vantack client. If merchantID or apiKey are
 // empty the client is "disabled" and CreateEmbedCode returns ErrNotConfigured.
-func NewClient(merchantID, apiKey string, testMode bool) *Client {
+// The testMode parameter is accepted for backwards compatibility but is
+// ignored — every call goes to production.
+func NewClient(merchantID, apiKey string, _testMode bool) *Client {
 	return &Client{
 		merchantID: merchantID,
 		apiKey:     apiKey,
-		testMode:   testMode,
 		http:       &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -53,19 +52,14 @@ func (c *Client) Enabled() bool {
 	return c.merchantID != "" && c.apiKey != ""
 }
 
-// TestMode reports whether the client is in sandbox mode.
-func (c *Client) TestMode() bool { return c.testMode }
+// TestMode always returns false — sandbox has been removed.
+func (c *Client) TestMode() bool { return false }
 
 // EmbedBaseURL returns the legacy `<root>/embed` path. Kept for backwards
-// compatibility with the FE which previously embedded `${embed_base_url}/${code}`.
+// compatibility with FE callers that previously built URLs as
+// `${embed_base_url}/${code}`.
 func (c *Client) EmbedBaseURL() string {
-	return c.embedRoot() + "/embed"
-}
-
-// embedRoot returns the wallet host root (no `/embed` suffix).
-func (c *Client) embedRoot() string {
-
-	return prodEmbedRoot
+	return embedRootURL + "/embed"
 }
 
 // EmbedURL builds the full popup URL we want the browser to open for a
@@ -80,14 +74,7 @@ func (c *Client) embedRoot() string {
 //     template needs, so the hidden input is always populated and OTP
 //     verify always finds the prefill session.
 func (c *Client) EmbedURL(embedCode string) string {
-	return c.embedRoot() + "/?s=" + embedCode
-}
-
-func (c *Client) apiBase() string {
-	if c.testMode {
-		return sandboxAPIBase
-	}
-	return prodAPIBase
+	return embedRootURL + "/?s=" + embedCode
 }
 
 type prefillRequest struct {
@@ -104,7 +91,7 @@ type prefillResponse struct {
 
 // CreateEmbedCode mints a fresh single-use embed_code for the given
 // recipient email. The returned UUID can be passed to the FE which opens
-// the wallet at <embedRoot>/?s=<embedCode>.
+// the wallet at <embedRootURL>/?s=<embedCode>.
 //
 // `amount` is optional. When non-nil and > 0 the RR /send screen will
 // pre-fill (and lock) the amount field after OTP succeeds.
@@ -114,7 +101,6 @@ func (c *Client) CreateEmbedCode(ctx context.Context, recipientEmail, memo strin
 	}
 
 	payload := prefillRequest{Email: recipientEmail, Memo: memo}
-	// RR rejects amount<=0, so only attach when meaningful.
 	if amount != nil && *amount > 0 {
 		payload.Amount = amount
 	}
@@ -123,7 +109,7 @@ func (c *Client) CreateEmbedCode(ctx context.Context, recipientEmail, memo strin
 		return "", fmt.Errorf("marshal prefill body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiBase()+"/v1/merchants/embed/prefill", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBaseURL+"/v1/merchants/embed/prefill", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("build prefill request: %w", err)
 	}
