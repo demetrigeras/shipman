@@ -27,7 +27,14 @@ export default function EmbedWallet({
   const [error, setError] = useState<string | null>(null);
   const [minting, setMinting] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  const [debugEmbedCodeMasked, setDebugEmbedCodeMasked] = useState<string>('');
   const lastKey = useRef<string>('');
+
+  const maskEmbedCode = (code: string) => {
+    if (!code) return '';
+    if (code.length <= 12) return code;
+    return `${code.slice(0, 8)}…${code.slice(-4)}`;
+  };
 
   useEffect(() => {
     const key = `${recipientEmail}|${memo ?? ''}`;
@@ -39,11 +46,13 @@ export default function EmbedWallet({
     setError(null);
     setIframeSrc(null);
     setLoaded(false);
+    setDebugEmbedCodeMasked('');
 
     api.payments
       .createEmbedCode(recipientEmail, memo)
       .then(res => {
         if (cancelled) return;
+        setDebugEmbedCodeMasked(maskEmbedCode(res.embed_code));
         setIframeSrc(`${res.embed_base_url}/${res.embed_code}?t=${Date.now()}`);
       })
       .catch(e => {
@@ -65,6 +74,7 @@ export default function EmbedWallet({
     setMinting(true);
     setIframeSrc(null);
     setLoaded(false);
+    setDebugEmbedCodeMasked('');
     // bump effect by toggling the key
     setTimeout(() => {
       lastKey.current = '';
@@ -73,6 +83,20 @@ export default function EmbedWallet({
 
   return (
     <div className="embed-wallet" style={{ minHeight: height }}>
+      <div
+        style={{
+          fontSize: '0.72rem',
+          color: '#64748b',
+          padding: '6px 8px',
+          borderBottom: '1px solid #e2e8f0',
+          background: '#f8fafc',
+        }}
+      >
+        <strong>Debug Prefill:</strong>{' '}
+        recipient=<code>{recipientEmail || '—'}</code>{' '}
+        memo=<code>{memo || '—'}</code>{' '}
+        embed_code=<code>{debugEmbedCodeMasked || 'pending…'}</code>
+      </div>
       {error ? (
         <div className="embed-wallet-error">
           <h4>Couldn't start payment</h4>

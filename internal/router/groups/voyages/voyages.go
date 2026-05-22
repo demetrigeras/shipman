@@ -1,6 +1,7 @@
 package voyages
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -247,7 +248,67 @@ func (h *Handler) handleGet(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
-	c.JSON(http.StatusOK, v)
+
+	// Hydrate the three party slots with name+email so the FE doesn't need
+	// a second round-trip to look up the owner/broker. Failures here are
+	// soft — we still return the voyage with whatever parties resolved.
+	parties := h.hydrateParties(c.Request.Context(), v)
+
+	// Send Voyage at top level plus a `parties` sidecar — keeps the existing
+	// FE shape unchanged (all voyage fields stay top-level) and just adds
+	// the new object alongside.
+	resp := gin.H{}
+	raw, _ := json.Marshal(v)
+	_ = json.Unmarshal(raw, &resp)
+	resp["parties"] = parties
+	c.JSON(http.StatusOK, resp)
+}
+
+// partyInfo is the minimal user profile we ship to the FE for each party
+// slot on a voyage. nil fields stay omitted from JSON.
+type partyInfo struct {
+	UserID   string `json:"user_id"`
+	Email    string `json:"email"`
+	FullName string `json:"full_name"`
+}
+
+type voyageParties struct {
+	Owner        *partyInfo `json:"owner,omitempty"`
+	Counterparty *partyInfo `json:"counterparty,omitempty"`
+	Broker       *partyInfo `json:"broker,omitempty"`
+}
+
+func (h *Handler) hydrateParties(ctx context.Context, v db.Voyage) voyageParties {
+	out := voyageParties{}
+	lookup := func(id *uuid.UUID) *partyInfo {
+		if id == nil {
+			return nil
+		}
+		u, err := h.userRepo.Retrieve(ctx, *id)
+		if err != nil {
+			return nil
+		}
+		return &partyInfo{
+			UserID:   u.ID.String(),
+			Email:    u.Email,
+			FullName: u.FullName,
+		}
+	}
+	out.Owner = lookup(v.OwnerUserID)
+	out.Counterparty = lookup(v.CounterpartyUserID)
+	out.Broker = lookup(v.BrokerUserID)
+
+	// Fallback: if counterparty wasn't linked to a user yet but we have an
+	// email on the voyage row, still surface it so the FE has something to
+	// display (and the name if we have one too).
+	if out.Counterparty == nil && v.CounterpartyEmail != nil && *v.CounterpartyEmail != "" {
+		name := ""
+		if v.CounterpartyName != nil {
+			name = *v.CounterpartyName
+		}
+		out.Counterparty = &partyInfo{Email: *v.CounterpartyEmail, FullName: name}
+	}
+	return out
 }
 
 func (h *Handler) handleUpdate(c *gin.Context) {

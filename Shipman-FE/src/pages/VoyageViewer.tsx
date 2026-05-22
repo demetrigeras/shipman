@@ -73,6 +73,8 @@ export default function VoyageViewer() {
   const [payCreating, setPayCreating] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [checkoutModal, setCheckoutModal] = useState<{ url: string; name: string } | null>(null);
+  const [walletPrefillEmail, setWalletPrefillEmail] = useState<string | undefined>(undefined);
+  const [walletSuggestedAmount, setWalletSuggestedAmount] = useState<number | undefined>(undefined);
 
   // Invite
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -411,6 +413,12 @@ export default function VoyageViewer() {
   type FixtureRole = 'shipowner' | 'charterer';
   const myRole: FixtureRole = isOwner ? 'shipowner' : isCounterparty ? 'charterer' : (currentUser?.role === 'charterer' ? 'charterer' : 'shipowner');
   const otherPartyLabel = myRole === 'shipowner' ? 'Charterer' : 'Shipowner';
+  const ownerName = voyage.parties?.owner?.full_name || null;
+  const ownerEmail = voyage.parties?.owner?.email || null;
+  const counterpartyName = voyage.parties?.counterparty?.full_name || voyage.counterparty_name || null;
+  const counterpartyEmail = voyage.parties?.counterparty?.email || voyage.counterparty_email || null;
+  const otherPartyName = myRole === 'shipowner' ? (counterpartyName || 'Charterer') : (ownerName || 'Shipowner');
+  const otherPartyEmail = myRole === 'shipowner' ? (counterpartyEmail || '—') : (ownerEmail || '—');
 
   const mapPositions = [...positions].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
   const latLngs: [number, number][] = mapPositions.map(p => [p.latitude, p.longitude]);
@@ -849,8 +857,8 @@ export default function VoyageViewer() {
 
           const renderInvoiceCard = (p: VoyagePayment, isSent: boolean) => {
             const color = statusColor[p.status] ?? '#64748b';
-            const recipientName = isSent ? (voyage.counterparty_name || null) : (myRole === 'charterer' ? voyage.vessel_name || null : null);
-            const recipientEmail = isSent ? (p.recipient_email || voyage.counterparty_email || null) : null;
+            const recipientName = isSent ? (otherPartyName || null) : null;
+            const recipientEmail = isSent ? (p.recipient_email || (otherPartyEmail !== '—' ? otherPartyEmail : null)) : null;
             return (
               <div key={p.id} className={`pay-invoice-card${isSent ? '' : ' pay-invoice-card--received'}`}>
                 <div className="pay-invoice-left">
@@ -864,8 +872,16 @@ export default function VoyageViewer() {
                     </span>
                     {isSent && (recipientName || recipientEmail) && (
                       <span className="pay-invoice-recipient">
+                        <span className="pay-recipient-label">Requested from</span>
                         {recipientName && <span className="pay-recipient-name">{recipientName}</span>}
                         {recipientEmail && <span className="pay-recipient-email">{recipientEmail}</span>}
+                      </span>
+                    )}
+                    {!isSent && (
+                      <span className="pay-invoice-recipient">
+                        <span className="pay-recipient-label">Requested by</span>
+                        {otherPartyName && <span className="pay-recipient-name">{otherPartyName}</span>}
+                        {otherPartyEmail && otherPartyEmail !== '—' && <span className="pay-recipient-email">{otherPartyEmail}</span>}
                       </span>
                     )}
                   </div>
@@ -894,6 +910,21 @@ export default function VoyageViewer() {
                         Pay
                       </button>
                     )}
+                    {!isSent && p.status !== 'completed' && (
+                      <button
+                        className="btn-secondary btn-sm"
+                        title="Prefill wallet with request context"
+                        onClick={() => {
+                          if (otherPartyEmail && otherPartyEmail !== '—') {
+                            setWalletPrefillEmail(otherPartyEmail);
+                          }
+                          setWalletSuggestedAmount(p.amount);
+                          document.getElementById('wallet-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                      >
+                        Pay Request
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -906,6 +937,8 @@ export default function VoyageViewer() {
             {/* ━━ EMBEDDED WALLET (RocketRamp) ━━━━━━━━━━━━━━━━━━ */}
             <WalletSection
               voyage={voyage}
+              prefillEmail={walletPrefillEmail}
+              suggestedAmount={walletSuggestedAmount}
               onCounterpartySaved={(email, name) => {
                 setVoyage(v => v ? { ...v, counterparty_email: email, counterparty_name: name ?? v.counterparty_name } : v);
               }}
@@ -918,7 +951,7 @@ export default function VoyageViewer() {
               <div className="pay-col">
                 <div className="pay-col-header">
                   <div className="pay-col-identity">
-                    <h3>Sent</h3>
+                    <h3>Requests Sent</h3>
                     <span className="pay-col-count">{sentInvoices.length}</span>
                   </div>
                   <div className="pay-col-actions">
@@ -927,7 +960,7 @@ export default function VoyageViewer() {
                         Generate
                       </button>
                     )}
-                    <button className="btn-primary btn-sm" onClick={() => setShowPaymentForm(true)}>+ Invoice</button>
+                    <button className="btn-primary btn-sm" onClick={() => setShowPaymentForm(true)}>+ Request</button>
                   </div>
                 </div>
                 <div className="pay-col-who">
@@ -935,7 +968,7 @@ export default function VoyageViewer() {
                   <span className="pay-col-email">{currentUser?.email}</span>
                 </div>
                 {sentInvoices.length === 0 ? (
-                  <div className="pay-section-empty">No invoices sent yet</div>
+                  <div className="pay-section-empty">No payment requests sent yet</div>
                 ) : (
                   <div className="pay-invoice-list">
                     {sentInvoices.map(p => renderInvoiceCard(p, true))}
@@ -947,16 +980,16 @@ export default function VoyageViewer() {
               <div className="pay-col">
                 <div className="pay-col-header">
                   <div className="pay-col-identity">
-                    <h3>Received</h3>
+                    <h3>Requests Received</h3>
                     <span className="pay-col-count">{receivedInvoices.length}</span>
                   </div>
                 </div>
                 <div className="pay-col-who">
-                  <span className="pay-col-role">{otherPartyLabel}</span>
-                  <span className="pay-col-email">{myRole === 'shipowner' ? (voyage.counterparty_email || '—') : (voyage.owner_user_id ? 'Owner' : '—')}</span>
+                  <span className="pay-col-role">{otherPartyName}</span>
+                  <span className="pay-col-email">{otherPartyEmail}</span>
                 </div>
                 {receivedInvoices.length === 0 ? (
-                  <div className="pay-section-empty">No invoices received yet</div>
+                  <div className="pay-section-empty">No payment requests received yet</div>
                 ) : (
                   <div className="pay-invoice-list">
                     {receivedInvoices.map(p => renderInvoiceCard(p, false))}
@@ -1051,7 +1084,7 @@ export default function VoyageViewer() {
       {showPaymentForm && (
         <div className="modal-backdrop" onClick={() => setShowPaymentForm(false)}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
-            <h3 style={{ marginBottom: '1rem' }}>Create Invoice</h3>
+            <h3 style={{ marginBottom: '1rem' }}>Request Payment</h3>
             <form onSubmit={handleCreatePayment}>
               <label className="field-label">Payment Type *</label>
               <select className="field-input" value={payForm.payment_type}
@@ -1069,12 +1102,15 @@ export default function VoyageViewer() {
               <input className="field-input" required placeholder="e.g. Monthly hire — MV Pacific Star"
                 value={payForm.name}
                 onChange={e => setPayForm(f => ({ ...f, name: e.target.value }))} />
-              <p className="hint" style={{ fontSize: '0.72rem', marginTop: '0.2rem' }}>Shown to the payer on the checkout screen.</p>
+              <p className="hint" style={{ fontSize: '0.72rem', marginTop: '0.2rem' }}>Shown to the other party as the payment request title.</p>
 
               <label className="field-label" style={{ marginTop: '0.75rem' }}>Amount (USD) *</label>
               <input className="field-input" type="number" step="0.01" required placeholder="25000.00"
                 value={payForm.amount}
                 onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} />
+              <p className="hint" style={{ fontSize: '0.72rem', marginTop: '0.2rem' }}>
+                This creates a request in Shipman. The payer still enters the amount in RocketRamp when sending.
+              </p>
 
               {/* Recurring payment toggle */}
               <div className="pay-recurring-section" style={{ marginTop: '1rem' }}>
@@ -1128,7 +1164,7 @@ export default function VoyageViewer() {
               <div className="modal-actions" style={{ marginTop: '1.25rem' }}>
                 <button type="button" className="btn-secondary" onClick={() => setShowPaymentForm(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" disabled={payCreating || !payForm.amount || !payForm.name}>
-                  {payCreating ? 'Creating…' : payForm.recurring ? 'Create Recurring' : 'Create'}
+                  {payCreating ? 'Creating…' : payForm.recurring ? 'Send Recurring Request' : 'Send Request'}
                 </button>
               </div>
             </form>
@@ -1375,10 +1411,12 @@ const DEFAULT_TEST_RECIPIENT = 'demetrijgeras+1@gmail.com';
 
 interface WalletSectionProps {
   voyage: Voyage;
+  prefillEmail?: string;
+  suggestedAmount?: number;
   onCounterpartySaved: (email: string, name?: string) => void;
 }
 
-function WalletSection({ voyage, onCounterpartySaved }: WalletSectionProps) {
+function WalletSection({ voyage, prefillEmail, suggestedAmount, onCounterpartySaved }: WalletSectionProps) {
   // The text in the input box. This is the email we'll use when the wallet
   // modal opens — we mint a fresh embed code each time the modal is opened.
   const [draftEmail, setDraftEmail] = useState<string>(
@@ -1396,6 +1434,12 @@ function WalletSection({ voyage, onCounterpartySaved }: WalletSectionProps) {
   };
   const closeWallet = () => setWalletOpen(false);
 
+  useEffect(() => {
+    if (prefillEmail && prefillEmail !== draftEmail) {
+      setDraftEmail(prefillEmail);
+    }
+  }, [prefillEmail]);
+
   const saveAsCounterparty = async () => {
     if (!trimmedDraft) return;
     setSavingCounterparty(true);
@@ -1411,7 +1455,7 @@ function WalletSection({ voyage, onCounterpartySaved }: WalletSectionProps) {
 
   return (
     <>
-      <div className="pay-wallet-card">
+      <div id="wallet-section" className="pay-wallet-card">
         <div className="pay-wallet-header">
           <div style={{ flex: 1 }}>
             <div className="pay-wallet-label">Send Funds</div>
@@ -1444,6 +1488,11 @@ function WalletSection({ voyage, onCounterpartySaved }: WalletSectionProps) {
           {!voyage.counterparty_email && (
             <p className="pay-wallet-hint">
               Defaulted to <code>{DEFAULT_TEST_RECIPIENT}</code> for testing. Change the email above, then click <strong>Open Wallet</strong> to send.
+            </p>
+          )}
+          {suggestedAmount != null && (
+            <p className="pay-wallet-hint pay-wallet-hint--amount">
+              Requested amount: <strong>USD {suggestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. Enter this same amount in RocketRamp when sending.
             </p>
           )}
         </div>

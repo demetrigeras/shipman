@@ -55,10 +55,23 @@ export interface Voyage {
   insurance_cost?: number;
   counterparty_name?: string;
   counterparty_email?: string;
+  parties?: VoyageParties;
   status: string;
   notes?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface VoyageParty {
+  user_id?: string;
+  email?: string;
+  full_name?: string;
+}
+
+export interface VoyageParties {
+  owner?: VoyageParty;
+  counterparty?: VoyageParty;
+  broker?: VoyageParty;
 }
 
 export interface ShipPosition {

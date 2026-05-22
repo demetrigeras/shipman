@@ -2264,6 +2264,20 @@
   color: #0f172a;
   border: 1px solid #e2e8f0;
 }
+.pay-wallet-hint--amount {
+  margin-top: 6px;
+  color: #1e40af;
+}
+
+.pay-recipient-label {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  margin-right: 6px;
+}
 
 /* The big call-to-action button that opens the RocketRamp wallet modal. */
 .btn-wallet-open {
