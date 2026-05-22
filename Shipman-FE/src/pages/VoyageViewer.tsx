@@ -3,10 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { Voyage, ShipPosition, LaytimeEntry, LaytimeSummary, Document, ExtractedTerms, VoyagePayment, User } from '../api/client';
 import NavBar from '../components/NavBar';
-import EmbedWallet from '../components/EmbedWallet';
 
 // Fix leaflet default marker icons in Vite
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
@@ -1416,28 +1415,40 @@ interface WalletSectionProps {
   onCounterpartySaved: (email: string, name?: string) => void;
 }
 
+// maskEmbedCode trims a UUID-shaped code to "first8…last4" for in-UI debug
+// display so we can verify prefill is happening without leaking the full
+// single-use code to anyone shoulder-surfing.
+function maskEmbedCode(code: string): string {
+  if (!code) return '';
+  if (code.length <= 12) return code;
+  return `${code.slice(0, 8)}…${code.slice(-4)}`;
+}
+
 function WalletSection({ voyage, prefillEmail, suggestedAmount, onCounterpartySaved }: WalletSectionProps) {
-  // The text in the input box. This is the email we'll use when the wallet
-  // modal opens — we mint a fresh embed code each time the modal is opened.
+  // The text in the input box — what we send to the backend on every wallet
+  // open so the embed_code is minted against the right recipient.
   const [draftEmail, setDraftEmail] = useState<string>(
     voyage.counterparty_email || DEFAULT_TEST_RECIPIENT,
   );
   const [savingCounterparty, setSavingCounterparty] = useState(false);
-  const [walletOpen, setWalletOpen] = useState(false);
+
+  // Popup-wallet state. We use window.open instead of an iframe so the
+  // RocketRamp session cookie is stored first-party — iframes are third-party
+  // contexts where modern browsers (Chrome 2024+, Safari ITP) either block
+  // or partition the cookie, forcing a re-login every time the iframe closes.
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastDebug, setLastDebug] = useState<{ recipient: string; memo: string; embedCode: string; url: string } | null>(null);
 
   const memo = `Voyage ${voyage.voyage_number || voyage.id.slice(0, 8)}`;
   const trimmedDraft = draftEmail.trim();
   const isPersisted = !!voyage.counterparty_email && voyage.counterparty_email === trimmedDraft;
 
-  const openWallet = () => {
-    if (trimmedDraft) setWalletOpen(true);
-  };
-  const closeWallet = () => setWalletOpen(false);
-
   useEffect(() => {
     if (prefillEmail && prefillEmail !== draftEmail) {
       setDraftEmail(prefillEmail);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillEmail]);
 
   const saveAsCounterparty = async () => {
@@ -1453,79 +1464,167 @@ function WalletSection({ voyage, prefillEmail, suggestedAmount, onCounterpartySa
     }
   };
 
+  // openWalletPopup is the new replacement for the iframe modal. The popup
+  // MUST be opened synchronously inside this click handler — opening it
+  // after the async backend call would let the browser's popup blocker
+  // kill it (only direct user-gesture handlers can open windows).
+  const openWalletPopup = async () => {
+    if (!trimmedDraft || opening) return;
+    setError(null);
+
+    // 1. Pre-open with a placeholder so the popup is born from the click.
+    const popup = window.open(
+      'about:blank',
+      'rocketramp_wallet',
+      'popup,width=480,height=860,noopener=no',
+    );
+    if (!popup) {
+      setError('Popup was blocked. Allow popups for this site and try again.');
+      return;
+    }
+    // Show a quick "loading" message inside the popup while we mint the code.
+    try {
+      popup.document.title = 'Opening RocketRamp…';
+      popup.document.body.innerHTML =
+        '<div style="font-family:system-ui,-apple-system,sans-serif;padding:32px;color:#475569;text-align:center">' +
+        '<div style="font-size:1.4rem;margin-bottom:8px">⚓ Shipman</div>' +
+        '<div>Preparing your RocketRamp wallet…</div>' +
+        '</div>';
+    } catch {
+      // Popup may be cross-origin already in some browsers; non-fatal.
+    }
+
+    setOpening(true);
+    try {
+      const result = await api.payments.createEmbedCode(trimmedDraft, memo);
+      // Prefer the backend-built `embed_url` (uses /?s=<code> form, which
+      // populates RR's hidden `prefilledSessionId` form input directly).
+      // Fall back to the legacy /embed/<code> shape only if the backend
+      // didn't include the new field yet (e.g. old deploy).
+      const base = result.embed_url
+        ? result.embed_url
+        : `${result.embed_base_url}/${result.embed_code}`;
+      const url = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
+      // 2. Redirect the popup to the wallet. Using location.replace so the
+      //    about:blank entry doesn't pollute the popup's history.
+      popup.location.replace(url);
+      setLastDebug({
+        recipient: trimmedDraft,
+        memo,
+        embedCode: maskEmbedCode(result.embed_code),
+        url,
+      });
+    } catch (e) {
+      // If minting failed, close the popup we already opened so the user
+      // doesn't stare at a blank window.
+      try { popup.close(); } catch { /* ignore */ }
+      setError(e instanceof ApiError ? e.message : 'Failed to start RocketRamp session');
+    } finally {
+      setOpening(false);
+    }
+  };
+
   return (
-    <>
-      <div id="wallet-section" className="pay-wallet-card">
-        <div className="pay-wallet-header">
-          <div style={{ flex: 1 }}>
-            <div className="pay-wallet-label">Send Funds</div>
-            <div className="pay-wallet-desc">
-              Pick a recipient below, then open the RocketRamp wallet to send.
-            </div>
+    <div id="wallet-section" className="pay-wallet-card">
+      <div className="pay-wallet-header">
+        <div style={{ flex: 1 }}>
+          <div className="pay-wallet-label">Send Funds</div>
+          <div className="pay-wallet-desc">
+            Pick a recipient below, then open the RocketRamp wallet in a new window to send.
           </div>
         </div>
-
-        <div className="pay-wallet-recipient">
-          <label className="pay-wallet-recipient-label">Recipient email</label>
-          <div className="pay-wallet-recipient-row">
-            <input
-              type="email"
-              className="pay-wallet-recipient-input"
-              value={draftEmail}
-              onChange={e => setDraftEmail(e.target.value)}
-              placeholder="charterer@example.com"
-            />
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              onClick={saveAsCounterparty}
-              disabled={savingCounterparty || isPersisted || !trimmedDraft}
-              title="Save this as the voyage's counterparty so it auto-fills next time"
-            >
-              {savingCounterparty ? 'Saving…' : (isPersisted ? 'Saved ✓' : 'Save as counterparty')}
-            </button>
-          </div>
-          {!voyage.counterparty_email && (
-            <p className="pay-wallet-hint">
-              Defaulted to <code>{DEFAULT_TEST_RECIPIENT}</code> for testing. Change the email above, then click <strong>Open Wallet</strong> to send.
-            </p>
-          )}
-          {suggestedAmount != null && (
-            <p className="pay-wallet-hint pay-wallet-hint--amount">
-              Requested amount: <strong>USD {suggestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. Enter this same amount in RocketRamp when sending.
-            </p>
-          )}
-        </div>
-
-        <button
-          type="button"
-          className="btn-primary btn-wallet-open"
-          onClick={openWallet}
-          disabled={!trimmedDraft}
-        >
-          💸 Open Wallet — Pay <strong>{trimmedDraft || 'recipient'}</strong>
-        </button>
       </div>
 
-      {walletOpen && (
-        <div className="coinsub-modal-overlay" onClick={closeWallet}>
-          <div className="coinsub-modal" onClick={e => e.stopPropagation()}>
-            <button
-              type="button"
-              className="coinsub-modal-close"
-              onClick={closeWallet}
-              aria-label="Close wallet"
-            >
-              ✕
-            </button>
-            <EmbedWallet
-              recipientEmail={trimmedDraft}
-              memo={memo}
-              height={760}
-            />
-          </div>
+      <div className="pay-wallet-recipient">
+        <label className="pay-wallet-recipient-label">Recipient email</label>
+        <div className="pay-wallet-recipient-row">
+          <input
+            type="email"
+            className="pay-wallet-recipient-input"
+            value={draftEmail}
+            onChange={e => setDraftEmail(e.target.value)}
+            placeholder="charterer@example.com"
+          />
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={saveAsCounterparty}
+            disabled={savingCounterparty || isPersisted || !trimmedDraft}
+            title="Save this as the voyage's counterparty so it auto-fills next time"
+          >
+            {savingCounterparty ? 'Saving…' : (isPersisted ? 'Saved ✓' : 'Save as counterparty')}
+          </button>
         </div>
+        {!voyage.counterparty_email && (
+          <p className="pay-wallet-hint">
+            Defaulted to <code>{DEFAULT_TEST_RECIPIENT}</code> for testing. Change the email above, then click <strong>Open Wallet</strong> to send.
+          </p>
+        )}
+        {suggestedAmount != null && (
+          <p className="pay-wallet-hint pay-wallet-hint--amount">
+            Requested amount: <strong>USD {suggestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. Enter this same amount in RocketRamp when sending.
+          </p>
+        )}
+      </div>
+
+      <button
+        type="button"
+        className="btn-primary btn-wallet-open"
+        onClick={openWalletPopup}
+        disabled={!trimmedDraft || opening}
+      >
+        {opening
+          ? 'Opening wallet…'
+          : <>💸 Open Wallet — Pay <strong>{trimmedDraft || 'recipient'}</strong></>}
+      </button>
+
+      {error && (
+        <p
+          style={{
+            marginTop: 10,
+            color: '#b91c1c',
+            fontSize: '0.85rem',
+          }}
+        >
+          {error}{' '}
+          {lastDebug?.url && (
+            <a href={lastDebug.url} target="_blank" rel="noopener noreferrer">
+              Open in new tab →
+            </a>
+          )}
+        </p>
       )}
-    </>
+
+      {/*
+        Debug Prefill strip — shows what we sent to /api/v1/payments/embed-code
+        and a masked view of the embed_code we got back. Lets us verify the
+        prefill round-trip without DevTools. Remove this block when we're
+        confident prefill is wired end-to-end.
+      */}
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: '0.72rem',
+          color: '#64748b',
+          padding: '6px 10px',
+          borderRadius: 6,
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          wordBreak: 'break-all',
+        }}
+      >
+        <div>
+          <strong>Debug Prefill:</strong>{' '}
+          recipient=<code>{trimmedDraft || '—'}</code>{' '}
+          memo=<code>{memo}</code>{' '}
+          last_embed_code=<code>{lastDebug?.embedCode || '—'}</code>
+        </div>
+        {lastDebug?.url && (
+          <div style={{ marginTop: 4 }}>
+            popup_url=<code>{lastDebug.url}</code>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

@@ -632,9 +632,10 @@ export const api = {
 
   payments: {
     // Mint a fresh single-use RocketRamp embed code for the given recipient.
-    // The wallet iframe should load `<embed_base_url>/<embed_code>`.
+    // Prefer `embed_url` (full popup URL); `embed_base_url`+`embed_code` is
+    // kept around for older callers that build the URL themselves.
     createEmbedCode: (recipientEmail: string, memo?: string) =>
-      request<{ embed_code: string; embed_base_url: string; test_mode: boolean }>(
+      request<{ embed_code: string; embed_base_url: string; embed_url: string; test_mode: boolean }>(
         '/payments/embed-code',
         {
           method: 'POST',

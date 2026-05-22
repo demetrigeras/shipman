@@ -37,7 +37,11 @@ type createEmbedCodeRequest struct {
 type createEmbedCodeResponse struct {
 	EmbedCode    string `json:"embed_code"`
 	EmbedBaseURL string `json:"embed_base_url"`
-	TestMode     bool   `json:"test_mode"`
+	// EmbedURL is the full URL the FE should open in a popup. We build it
+	// server-side so the URL-shape decision (`?s=<code>` vs `/embed/<code>`)
+	// stays one place we can tweak without redeploying the FE.
+	EmbedURL string `json:"embed_url"`
+	TestMode bool   `json:"test_mode"`
 }
 
 // POST /api/v1/payments/embed-code
@@ -71,6 +75,7 @@ func (h *Handler) handleCreateEmbedCode(c *gin.Context) {
 	c.JSON(http.StatusOK, createEmbedCodeResponse{
 		EmbedCode:    code,
 		EmbedBaseURL: h.rocket.EmbedBaseURL(),
+		EmbedURL:     h.rocket.EmbedURL(code),
 		TestMode:     h.rocket.TestMode(),
 	})
 }

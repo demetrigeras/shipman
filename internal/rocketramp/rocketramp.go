@@ -17,8 +17,14 @@ import (
 const (
 	prodAPIBase    = "https://api.vantack.com"
 	sandboxAPIBase = "https://test-api.vantack.com"
-	prodEmbedBase    = "https://app.myrocketramp.com/embed"
-	sandboxEmbedBase = "https://test.myrocketramp.com/embed"
+	// Embed host roots. We keep these as roots (no `/embed` suffix) so we
+	// can construct either form of the popup URL:
+	//   - Root + "/?s=<code>"  (preferred: feeds default_route.go's hidden
+	//     `prefilledSessionId` input directly, skipping ShowEmbedPrefill)
+	//   - Root + "/embed/<code>" (legacy: relies on ShowEmbedPrefill to
+	//     redirect to /?s=<code>)
+	prodEmbedRoot    = "https://app.myrocketramp.com"
+	sandboxEmbedRoot = "https://test.myrocketramp.com"
 )
 
 // Client talks to the Vantack Prefill API.
@@ -51,13 +57,33 @@ func (c *Client) Enabled() bool {
 // TestMode reports whether the client is in sandbox mode.
 func (c *Client) TestMode() bool { return c.testMode }
 
-// EmbedBaseURL returns the host the FE should load the iframe from for the
-// current environment (so the FE doesn't have to guess).
+// EmbedBaseURL returns the legacy `<root>/embed` path. Kept for backwards
+// compatibility with the FE which previously embedded `${embed_base_url}/${code}`.
 func (c *Client) EmbedBaseURL() string {
+	return c.embedRoot() + "/embed"
+}
+
+// embedRoot returns the wallet host root (no `/embed` suffix).
+func (c *Client) embedRoot() string {
 	if c.testMode {
-		return sandboxEmbedBase
+		return sandboxEmbedRoot
 	}
-	return prodEmbedBase
+	return prodEmbedRoot
+}
+
+// EmbedURL builds the full popup URL we want the browser to open for a
+// given embed_code. We use the `?s=<code>` form (NOT `/embed/<code>`) because
+// the diagnosis from the RR team showed that:
+//   - `/embed/<code>` goes through ShowEmbedPrefill, which then redirects to
+//     `/?s=<code>`. The redirect chain occasionally drops the session
+//     identifier, leaving the sign-in form's hidden `prefilledSessionId`
+//     input empty → VerifyOTP then doesn't hydrate prefill data → user
+//     lands on /home instead of /send.
+//   - `/?s=<code>` hits default_route.go directly with the query param the
+//     template needs, so the hidden input is always populated and OTP
+//     verify always finds the prefill session.
+func (c *Client) EmbedURL(embedCode string) string {
+	return c.embedRoot() + "/?s=" + embedCode
 }
 
 func (c *Client) apiBase() string {
